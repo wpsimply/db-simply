@@ -114,6 +114,14 @@ abstract class TestCase
             $this->client->query(($row['type'] === 'VIEW' ? 'DROP VIEW ' : 'DROP TABLE ').'`'.str_replace('`', '``', (string) $row['name']).'`');
         }
 
+        foreach ($this->client->select('SELECT ROUTINE_TYPE AS type, ROUTINE_NAME AS name FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE()') as $row) {
+            $this->client->query('DROP '.$row['type'].' `'.str_replace('`', '``', (string) $row['name']).'`');
+        }
+
+        foreach ($this->client->select('SELECT EVENT_NAME AS name FROM information_schema.EVENTS WHERE EVENT_SCHEMA = DATABASE()') as $row) {
+            $this->client->query('DROP EVENT `'.str_replace('`', '``', (string) $row['name']).'`');
+        }
+
         $this->client->query('SET FOREIGN_KEY_CHECKS = 1');
 
         foreach ($statements as $statement) {

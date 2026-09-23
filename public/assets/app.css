@@ -285,6 +285,24 @@ pre.code.value { min-height: 120px; max-height: 65vh; }
 .progress-bar span { display: block; height: 100%; background: var(--accent); transition: width .3s; }
 .progress-bar.failed span { background: var(--danger); }
 .failed-sql { display: block; margin-top: 6px; color: var(--muted); white-space: pre-wrap; word-break: break-word; }
+.design-form { display: grid; gap: 12px; }
+.design-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px 12px; }
+.design-grid .wide { grid-column: 1 / -1; }
+.checks { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.index-part { display: grid; grid-template-columns: 1fr 140px auto; gap: 6px; align-items: center; }
+.add-part { justify-self: start; }
+table.new-columns td { padding: 4px; vertical-align: middle; }
+table.new-columns input[type="text"], table.new-columns select { min-height: 28px; padding: 2px 6px; }
+table.grid .center { text-align: center; }
+.structure h3 .actions { display: inline-flex; gap: 6px; text-transform: none; letter-spacing: 0; }
+.objects-bar { margin-bottom: 4px; }
+.objects h3, .objects h3:first-child { margin-top: 20px; }
+.objects table.grid { table-layout: fixed; }
+.objects table.grid td:first-child { width: 32%; overflow: hidden; text-overflow: ellipsis; }
+.objects table.grid td.actions-cell { width: 220px; }
+td.actions-cell { width: 1%; text-align: right; }
+.process-query { max-width: 360px; font-size: 12px; }
+.search-db .browse-bar input { flex: 1; }
 .confirm-list { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
 .confirm-list code { display: block; margin-top: 2px; color: var(--muted); white-space: pre-wrap; word-break: break-word; }
 

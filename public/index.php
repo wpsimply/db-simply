@@ -60,6 +60,7 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                     </template>
                 </select>
             </label>
+            <button type="button" class="button ghost" @click="openProcesses()" :disabled="busy" title="Your queries running on the server">Processes</button>
             <form method="post" action="logout.php">
                 <input type="hidden" name="csrf" :value="csrf">
                 <button type="submit" class="button ghost" :disabled="busy">Sign out</button>
@@ -158,9 +159,18 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                         </div>
                     </div>
                 </div>
+                <div class="head-row" x-show="!table">
+                    <div class="tabs" role="tablist">
+                        <button type="button" role="tab" :aria-selected="tab === 'tables'" @click="openOverview()">Tables</button>
+                        <button type="button" role="tab" :aria-selected="tab === 'objects'" @click="openObjects()">Routines &amp; events</button>
+                        <button type="button" role="tab" :aria-selected="tab === 'search'" @click="openSearch()">Search</button>
+                        <button type="button" role="tab" :aria-selected="tab === 'sql'" @click="openSql(null)">SQL</button>
+                    </div>
+                </div>
                 <div class="head-row" x-show="!table && tab === 'tables'">
                     <span class="muted small" x-text="tableSelection.length ? tableSelection.length + ' selected' : 'Select tables to act on several at once.'"></span>
                     <span class="spacer"></span>
+                    <button type="button" class="button small" @click="openCreateTable()" x-show="canWrite()" :disabled="busy">New table…</button>
                     <button type="button" class="button small" @click="openImport()" x-show="canWrite()" :disabled="busy">Import…</button>
                     <button type="button" class="button small" @click="openExport(tableSelection)" :disabled="busy || tables.length === 0" x-text="tableSelection.length ? 'Export selected…' : 'Export…'"></button>
                     <div class="menu" x-data="{ open: false }" @click.outside="open = false" x-show="canWrite()">
@@ -242,8 +252,8 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                     <template x-for="(filter, i) in filters" :key="i">
                         <div class="filter-row">
                             <select x-model="filter.column" aria-label="Column">
-                                <template x-for="column in browse.columns" :key="column.name">
-                                    <option :value="column.name" x-text="column.name" :selected="column.name === filter.column"></option>
+                                <template x-for="col in browse.columns" :key="col.name">
+                                    <option :value="col.name" x-text="col.name" :selected="col.name === filter.column"></option>
                                 </template>
                             </select>
                             <select x-model="filter.operator" aria-label="Operator">
@@ -278,12 +288,12 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                                 <th class="row-actions" x-show="rowsEditable()">
                                     <input type="checkbox" :checked="browse.rows.length > 0 && selectedRows.length === browse.rows.length" @change="selectedRows = $event.target.checked ? browse.rows.map((_, i) => i) : []" aria-label="Select all rows on this page">
                                 </th>
-                                <template x-for="column in browse.columns" :key="column.name">
-                                    <th :class="{ num: column.numeric }">
-                                        <button type="button" class="sort" @click="toggleSort(column.name)" :title="column.type">
-                                            <span x-text="column.name"></span>
-                                            <span class="key-mark" x-show="column.key" title="Identifies the row">key</span>
-                                            <span class="sort-mark" x-text="sort === column.name ? (dir === 'desc' ? '▼' : '▲') : ''"></span>
+                                <template x-for="col in browse.columns" :key="col.name">
+                                    <th :class="{ num: col.numeric }">
+                                        <button type="button" class="sort" @click="toggleSort(col.name)" :title="col.type">
+                                            <span x-text="col.name"></span>
+                                            <span class="key-mark" x-show="col.key" title="Identifies the row">key</span>
+                                            <span class="sort-mark" x-text="sort === col.name ? (dir === 'desc' ? '▼' : '▲') : ''"></span>
                                         </button>
                                     </th>
                                 </template>
@@ -321,38 +331,125 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                 </div>
             </div>
 
+            <!-- Routines & events -->
+            <div x-show="db && !table && tab === 'objects'" class="structure objects">
+                <p class="loading-line" x-show="objectsLoading && !objects"><span class="spinner small"></span> Loading…</p>
+                <template x-if="objects">
+                    <div>
+                        <div class="head-row objects-bar" x-show="canWrite()">
+                            <span class="muted small">Definitions open in the SQL editor to be changed and run again.</span>
+                            <span class="spacer"></span>
+                            <div class="menu" x-data="{ open: false }" @click.outside="open = false">
+                                <button type="button" class="button small primary" @click="open = !open" :disabled="busy">New…</button>
+                                <div class="menu-items right" x-show="open" x-transition.opacity @click="open = false">
+                                    <template x-for="kind in ['view', 'procedure', 'function', 'trigger', 'event']" :key="kind">
+                                        <button type="button" @click="newObject(kind)" x-text="kind.charAt(0).toUpperCase() + kind.slice(1)"></button>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                        <template x-for="group in objectGroups()" :key="group.type">
+                            <div>
+                                <h3 x-text="group.title"></h3>
+                                <p class="muted small" x-show="group.items.length === 0" x-text="'No ' + group.title.toLowerCase() + '.'"></p>
+                                <div class="table-wrap" x-show="group.items.length">
+                                    <table class="grid">
+                                        <tbody>
+                                            <template x-for="item in group.items" :key="item.name">
+                                                <tr>
+                                                    <td class="mono strong" x-text="item.name"></td>
+                                                    <td class="small muted" x-text="objectSummary(group.type, item)"></td>
+                                                    <td class="nowrap actions-cell">
+                                                        <button type="button" class="link" @click="showDefinition(group.type, item.name)" :disabled="busy">Show</button>
+                                                        <button type="button" class="link" x-show="canWrite()" @click="editDefinition(group.type, item.name)" :disabled="busy">Edit in SQL</button>
+                                                        <button type="button" class="link danger" x-show="canWrite()" @click="confirmDropObject(group.type, item.name)" :disabled="busy">Drop</button>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Search -->
+            <div x-show="db && !table && tab === 'search'" class="search-db">
+                <form class="browse-bar" @submit.prevent="searchDatabase()">
+                    <input type="search" x-ref="databaseSearch" x-model="dbSearch.term" placeholder="Find a value in every table, e.g. an old domain" aria-label="Search the database" autocomplete="off" spellcheck="false">
+                    <button type="submit" class="button small primary" :disabled="busy || !dbSearch.term.trim()" :class="{ 'is-loading': action === 'search' }">Search</button>
+                </form>
+                <p class="muted small">Text columns are searched for the value anywhere in them, number columns for the exact number.</p>
+                <template x-if="dbSearch.result">
+                    <div>
+                        <p class="small" x-text="searchSummary()"></p>
+                        <div class="table-wrap" x-show="dbSearch.result.results.length">
+                            <table class="grid">
+                                <thead><tr><th>Table</th><th class="num">Matching rows</th></tr></thead>
+                                <tbody>
+                                    <template x-for="hit in dbSearch.result.results" :key="hit.table">
+                                        <tr class="clickable" @click="openSearchHit(hit.table)">
+                                            <td><button type="button" class="link" x-text="hit.table"></button></td>
+                                            <td class="num" x-text="hit.matches.toLocaleString()"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p class="notice small" x-show="dbSearch.result.skipped.length" x-text="'Time ran out before these tables were searched: ' + dbSearch.result.skipped.join(', ') + '. Search them from their own Browse tab.'"></p>
+                    </div>
+                </template>
+            </div>
+
             <!-- Structure -->
             <div x-show="table && tab === 'structure'" class="structure" :aria-busy="structureLoading ? 'true' : 'false'">
                 <p class="loading-line" x-show="structureLoading && !structure"><span class="spinner small"></span> Loading structure…</p>
                 <template x-if="structure">
                     <div>
-                        <h3>Columns</h3>
+                        <h3 class="with-action">
+                            <span>Columns</span>
+                            <span class="actions" x-show="structureEditable()">
+                                <button type="button" class="button small" @click="openTableOptions()" :disabled="busy">Table options…</button>
+                                <button type="button" class="button small primary" @click="openColumn(null)" :disabled="busy">Add column</button>
+                            </span>
+                        </h3>
                         <div class="table-wrap">
                             <table class="grid">
-                                <thead><tr><th class="num">#</th><th>Name</th><th>Type</th><th>Null</th><th>Default</th><th>Key</th><th>Extra</th><th>Collation</th><th>Comment</th></tr></thead>
+                                <thead><tr><th class="num">#</th><th x-show="structureEditable()"><span class="sr-only">Actions</span></th><th>Name</th><th>Type</th><th>Null</th><th>Default</th><th>Key</th><th>Extra</th><th>Collation</th><th>Comment</th></tr></thead>
                                 <tbody>
-                                    <template x-for="(column, i) in structure.columns" :key="column.name">
+                                    <template x-for="(col, i) in structure.columns" :key="col.name">
                                         <tr>
                                             <td class="num" x-text="i + 1"></td>
-                                            <td class="mono strong" x-text="column.name"></td>
-                                            <td class="mono" x-text="column.type"></td>
-                                            <td x-text="column.nullable ? 'Yes' : 'No'"></td>
-                                            <td class="mono" :class="{ muted: column.default === null }" x-text="column.default === null ? (column.nullable ? 'NULL' : '—') : column.default"></td>
-                                            <td x-text="{ PRI: 'Primary', UNI: 'Unique', MUL: 'Index' }[column.key] || ''"></td>
-                                            <td class="small" x-text="column.extra"></td>
-                                            <td class="small" x-text="column.collation || ''"></td>
-                                            <td class="small" x-text="column.comment"></td>
+                                            <td class="nowrap" x-show="structureEditable()">
+                                                <button type="button" class="link" @click="openColumn(col.name)" :disabled="busy">Edit</button>
+                                                <button type="button" class="link danger" @click="reviewSchema({ operation: 'drop-column', name: col.name }, 'Drop column ' + col.name, true)" :disabled="busy || structure.columns.length === 1">Drop</button>
+                                            </td>
+                                            <td class="mono strong" x-text="col.name"></td>
+                                            <td class="mono" x-text="col.type"></td>
+                                            <td x-text="col.nullable ? 'Yes' : 'No'"></td>
+                                            <td class="mono" :class="{ muted: col.default === null }" x-text="col.default === null ? (col.nullable ? 'NULL' : '—') : col.default"></td>
+                                            <td x-text="{ PRI: 'Primary', UNI: 'Unique', MUL: 'Index' }[col.key] || ''"></td>
+                                            <td class="small" x-text="col.extra"></td>
+                                            <td class="small" x-text="col.collation || ''"></td>
+                                            <td class="small" x-text="col.comment"></td>
                                         </tr>
                                     </template>
                                 </tbody>
                             </table>
                         </div>
 
-                        <h3>Indexes</h3>
-                        <p class="muted small" x-show="structure.indexes.length === 0">No indexes.</p>
+                        <h3 class="with-action">
+                            <span>Indexes</span>
+                            <span class="actions" x-show="structureEditable()">
+                                <button type="button" class="button small" @click="openIndex()" :disabled="busy">Add index</button>
+                            </span>
+                        </h3>
+                        <p class="muted small" x-show="structure.indexes.length === 0">No indexes. Without a primary or unique key, rows of this table cannot be edited one by one.</p>
                         <div class="table-wrap" x-show="structure.indexes.length">
                             <table class="grid">
-                                <thead><tr><th>Name</th><th>Kind</th><th>Columns</th><th>Type</th></tr></thead>
+                                <thead><tr><th>Name</th><th>Kind</th><th>Columns</th><th>Type</th><th x-show="structureEditable()"><span class="sr-only">Actions</span></th></tr></thead>
                                 <tbody>
                                     <template x-for="index in structure.indexes" :key="index.name">
                                         <tr>
@@ -360,6 +457,9 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                                             <td x-text="index.primary ? 'Primary' : (index.unique ? 'Unique' : 'Index')"></td>
                                             <td class="mono" x-text="index.columns.map((c) => c.name + (c.subPart ? '(' + c.subPart + ')' : '')).join(', ')"></td>
                                             <td x-text="index.type"></td>
+                                            <td class="nowrap" x-show="structureEditable()">
+                                                <button type="button" class="link danger" @click="reviewSchema({ operation: 'drop-index', name: index.name }, 'Drop index ' + index.name, true)" :disabled="busy">Drop</button>
+                                            </td>
                                         </tr>
                                     </template>
                                 </tbody>
@@ -453,7 +553,7 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                                     <div>
                                         <div class="table-wrap grid-wrap">
                                             <table class="grid data">
-                                                <thead><tr><template x-for="(column, c) in set.columns" :key="c"><th :class="{ num: column.numeric }" :title="column.type" x-text="column.name"></th></template></tr></thead>
+                                                <thead><tr><template x-for="(col, c) in set.columns" :key="c"><th :class="{ num: col.numeric }" :title="col.type" x-text="col.name"></th></template></tr></thead>
                                                 <tbody>
                                                     <template x-for="(row, r) in set.rows" :key="r">
                                                         <tr><template x-for="(cell, c) in row" :key="c"><td :class="cellClass(cell, set.columns[c])" @click="showCell(cell, set.columns[c].name)" x-text="cellText(cell)"></td></template></tr>
@@ -480,7 +580,7 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
 
     <!-- Modal -->
     <div class="modal-backdrop" x-show="modal" x-transition.opacity @click.self="closeModal()" @keydown.escape.window="closeModal()">
-        <div class="modal" :class="{ wide: ['cell', 'row'].includes(modal) }" role="dialog" aria-modal="true" :aria-label="modalTitle" x-show="modal">
+        <div class="modal" :class="{ wide: ['cell', 'row', 'create-table', 'review', 'definition', 'processes'].includes(modal) }" role="dialog" aria-modal="true" :aria-label="modalTitle" x-show="modal">
             <header>
                 <h3 x-text="modalTitle"></h3>
                 <button type="button" class="link" @click="closeModal()" :disabled="modalLocked()" aria-label="Close">✕</button>
@@ -561,6 +661,205 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                     <button type="submit" class="button primary" :disabled="busy" :class="{ 'is-loading': action === 'save' }" x-text="editor.mode === 'edit' ? 'Save' : 'Insert'"></button>
                 </footer>
             </form>
+
+            <!-- Column -->
+            <form x-show="modal === 'column'" @submit.prevent="submitColumn()" class="design-form">
+                <p class="loading-line" x-show="designLoading"><span class="spinner small"></span> Loading…</p>
+                <template x-if="!designLoading && column">
+                    <div class="design-grid">
+                        <label class="stack">Name <input type="text" x-model="column.name" required spellcheck="false" maxlength="64"></label>
+                        <label class="stack">Type
+                            <select x-model="column.type" @change="column.length = defaultLength(column.type)">
+                                <template x-for="group in typeGroups" :key="group[0]">
+                                    <optgroup :label="group[0]">
+                                        <template x-for="type in group[1]" :key="type"><option :value="type" x-text="type" :selected="column.type === type"></option></template>
+                                    </optgroup>
+                                </template>
+                            </select>
+                        </label>
+                        <label class="stack" x-show="typeTakesLength(column.type)"><span x-text="['DECIMAL', 'FLOAT', 'DOUBLE'].includes(column.type) ? 'Precision, scale' : (['DATETIME', 'TIMESTAMP', 'TIME'].includes(column.type) ? 'Fraction digits' : 'Length')"></span>
+                            <input type="text" x-model="column.length" inputmode="numeric" spellcheck="false" :placeholder="column.type === 'DECIMAL' ? '10,2' : ''">
+                        </label>
+                        <label class="stack wide" x-show="['ENUM', 'SET'].includes(column.type)">Allowed values, one per line
+                            <textarea rows="4" x-model="column.valuesText" spellcheck="false"></textarea>
+                        </label>
+                        <label class="stack">Default
+                            <select x-model="column.default.kind">
+                                <option value="none">None</option>
+                                <option value="null" x-show="column.nullable">NULL</option>
+                                <option value="value">A value</option>
+                                <option value="current_timestamp" x-show="['DATETIME', 'TIMESTAMP'].includes(column.type)">The current time</option>
+                            </select>
+                        </label>
+                        <label class="stack" x-show="column.default.kind === 'value'">Default value <input type="text" x-model="column.default.value" spellcheck="false"></label>
+                        <label class="stack" x-show="typeIsText(column.type)">Collation
+                            <input type="text" x-model="column.collation" list="collation-list" spellcheck="false" placeholder="Table default">
+                        </label>
+                        <label class="stack" x-show="columnPositions().length">Position
+                            <select x-model="column.position">
+                                <template x-for="option in columnPositions()" :key="option[0]"><option :value="option[0]" x-text="option[1]" :selected="column.position === option[0]"></option></template>
+                            </select>
+                        </label>
+                        <label class="stack wide">Comment <input type="text" x-model="column.comment" maxlength="1024"></label>
+                        <div class="checks wide">
+                            <label class="check"><input type="checkbox" x-model="column.nullable" @change="if (!column.nullable && column.default.kind === 'null') column.default.kind = 'none'"> Allow NULL</label>
+                            <label class="check" x-show="['TINYINT', 'SMALLINT', 'MEDIUMINT', 'INT', 'BIGINT', 'DECIMAL', 'FLOAT', 'DOUBLE'].includes(column.type)"><input type="checkbox" x-model="column.unsigned"> Unsigned</label>
+                            <label class="check" x-show="['TINYINT', 'SMALLINT', 'MEDIUMINT', 'INT', 'BIGINT'].includes(column.type)"><input type="checkbox" x-model="column.autoIncrement"> Auto increment</label>
+                            <label class="check" x-show="['DATETIME', 'TIMESTAMP'].includes(column.type)"><input type="checkbox" x-model="column.onUpdateCurrentTimestamp"> Set to the current time on every update</label>
+                        </div>
+                        <p class="notice small wide" x-show="column.original">Changing a column's type rewrites the whole table and can cut values that no longer fit. Review the statement before you run it.</p>
+                    </div>
+                </template>
+                <footer>
+                    <button type="button" class="button" @click="closeModal()">Cancel</button>
+                    <button type="submit" class="button primary" :disabled="busy || designLoading" :class="{ 'is-loading': action === 'preview' }">Review SQL</button>
+                </footer>
+            </form>
+
+            <!-- Index -->
+            <form x-show="modal === 'index'" @submit.prevent="submitIndex()" class="design-form">
+                <div class="design-grid">
+                    <label class="stack">Kind
+                        <select x-model="indexForm.kind">
+                            <option value="index">Index</option>
+                            <option value="unique">Unique</option>
+                            <option value="primary" x-show="!structure || !structure.indexes.some((i) => i.primary)">Primary key</option>
+                            <option value="fulltext">Full text</option>
+                        </select>
+                    </label>
+                    <label class="stack" x-show="indexForm.kind !== 'primary'">Name <input type="text" x-model="indexForm.name" spellcheck="false" maxlength="64" placeholder="Chosen by the server"></label>
+                </div>
+                <fieldset>
+                    <legend>Columns, in order</legend>
+                    <template x-for="(part, i) in indexForm.columns" :key="i">
+                        <div class="index-part">
+                            <select x-model="part.name" aria-label="Column">
+                                <template x-for="name in (structure ? structure.columns.map((c) => c.name) : [])" :key="name"><option :value="name" x-text="name" :selected="part.name === name"></option></template>
+                            </select>
+                            <input type="text" x-model="part.length" inputmode="numeric" placeholder="Prefix length" aria-label="Prefix length">
+                            <button type="button" class="link danger" @click="indexForm.columns.splice(i, 1)" x-show="indexForm.columns.length > 1" aria-label="Remove column">✕</button>
+                        </div>
+                    </template>
+                    <button type="button" class="link add-part" @click="indexForm.columns.push({ name: structure.columns[0].name, length: '' })">+ Add column</button>
+                </fieldset>
+                <footer>
+                    <button type="button" class="button" @click="closeModal()">Cancel</button>
+                    <button type="submit" class="button primary" :disabled="busy" :class="{ 'is-loading': action === 'preview' }">Review SQL</button>
+                </footer>
+            </form>
+
+            <!-- Table options -->
+            <form x-show="modal === 'options'" @submit.prevent="submitTableOptions()" class="design-form">
+                <div class="design-grid">
+                    <label class="stack">Engine
+                        <select x-model="optionsForm.engine">
+                            <template x-for="engine in ['InnoDB', 'MyISAM', 'Aria']" :key="engine"><option :value="engine" x-text="engine" :selected="optionsForm.engine === engine"></option></template>
+                        </select>
+                    </label>
+                    <label class="stack">Collation <input type="text" x-model="optionsForm.collation" list="collation-list" spellcheck="false"></label>
+                    <label class="stack wide">Comment <input type="text" x-model="optionsForm.comment" maxlength="2048"></label>
+                    <label class="check wide"><input type="checkbox" x-model="optionsForm.convert"> Convert every text column to the new collation</label>
+                </div>
+                <footer>
+                    <button type="button" class="button" @click="closeModal()">Cancel</button>
+                    <button type="submit" class="button primary" :disabled="busy" :class="{ 'is-loading': action === 'preview' }">Review SQL</button>
+                </footer>
+            </form>
+
+            <!-- New table -->
+            <form x-show="modal === 'create-table'" @submit.prevent="submitCreateTable()" class="design-form">
+                <div class="design-grid">
+                    <label class="stack">Table name <input type="text" x-model="newTable.name" required spellcheck="false" maxlength="64"></label>
+                    <label class="stack">Engine
+                        <select x-model="newTable.engine">
+                            <template x-for="engine in ['InnoDB', 'MyISAM', 'Aria']" :key="engine"><option :value="engine" x-text="engine" :selected="newTable.engine === engine"></option></template>
+                        </select>
+                    </label>
+                    <label class="stack">Collation <input type="text" x-model="newTable.collation" list="collation-list" spellcheck="false" placeholder="Database default"></label>
+                </div>
+                <div class="table-wrap">
+                    <table class="grid new-columns">
+                        <thead><tr><th>Name</th><th>Type</th><th>Length</th><th>Default</th><th title="Allow NULL">Null</th><th title="Auto increment">Auto inc.</th><th title="Primary key">Key</th><th></th></tr></thead>
+                        <tbody>
+                            <template x-for="(col, i) in newTable.columns" :key="i">
+                                <tr>
+                                    <td><input type="text" x-model="col.name" spellcheck="false" aria-label="Column name" maxlength="64"></td>
+                                    <td>
+                                        <select x-model="col.type" aria-label="Type" @change="col.length = defaultLength(col.type)">
+                                            <template x-for="group in typeGroups" :key="group[0]">
+                                                <optgroup :label="group[0]"><template x-for="type in group[1]" :key="type"><option :value="type" x-text="type" :selected="col.type === type"></option></template></optgroup>
+                                            </template>
+                                        </select>
+                                    </td>
+                                    <td><input type="text" x-model="col.length" :placeholder="['ENUM', 'SET'].includes(col.type) ? 'a, b, c' : ''" aria-label="Length or values" spellcheck="false"></td>
+                                    <td><input type="text" x-model="col.defaultText" placeholder="none" aria-label="Default" spellcheck="false"></td>
+                                    <td class="center"><input type="checkbox" x-model="col.nullable" aria-label="Allow NULL"></td>
+                                    <td class="center"><input type="checkbox" x-model="col.autoIncrement" aria-label="Auto increment"></td>
+                                    <td class="center"><input type="checkbox" x-model="col.primary" aria-label="Primary key"></td>
+                                    <td><button type="button" class="link danger" @click="newTable.columns.splice(i, 1)" x-show="newTable.columns.length > 1" aria-label="Remove column">✕</button></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="muted small">Default: leave empty for none, write <code>NULL</code> or <code>CURRENT_TIMESTAMP</code>, or any value. For ENUM and SET, list the values separated by commas.</p>
+                <footer class="spread">
+                    <button type="button" class="link" @click="newTable.columns.push(blankColumn())">+ Add column</button>
+                    <span class="spacer"></span>
+                    <button type="button" class="button" @click="closeModal()">Cancel</button>
+                    <button type="submit" class="button primary" :disabled="busy" :class="{ 'is-loading': action === 'preview' }">Review SQL</button>
+                </footer>
+            </form>
+
+            <!-- Review a structure change -->
+            <div x-show="modal === 'review'">
+                <p class="small" x-text="review.destructive ? 'This throws data away and cannot be undone. Nothing has run yet.' : 'This is the statement that will run. Nothing has run yet.'"></p>
+                <pre class="code" x-text="review.sql"></pre>
+                <footer>
+                    <button type="button" class="button" @click="backFromReview()" :disabled="action === 'schema'" x-text="review.back ? 'Back' : 'Cancel'"></button>
+                    <button type="button" class="button" :class="[review.destructive ? 'danger-solid' : 'primary', action === 'schema' ? 'is-loading' : '']" @click="runSchema()" :disabled="busy">Run</button>
+                </footer>
+            </div>
+
+            <!-- Object definition -->
+            <div x-show="modal === 'definition'">
+                <p class="notice small" x-show="definition.sql === null">The server does not show this definition to you.</p>
+                <pre class="code" x-show="definition.sql !== null" x-text="definition.sql"></pre>
+                <footer>
+                    <button type="button" class="button" @click="copy(definition.sql)" x-show="definition.sql !== null">Copy</button>
+                    <button type="button" class="button primary" x-show="canWrite() && definition.sql !== null" @click="editDefinition(definition.type, definition.name, definition.sql)">Edit in SQL</button>
+                </footer>
+            </div>
+
+            <!-- Processes -->
+            <div x-show="modal === 'processes'">
+                <p class="muted small">Your connections to the database server, other than the one showing this list.</p>
+                <p class="empty" x-show="!processesLoading && processes.length === 0">Nothing else is running.</p>
+                <div class="table-wrap" x-show="processes.length">
+                    <table class="grid">
+                        <thead><tr><th class="num">Id</th><th>Database</th><th>Command</th><th class="num">Time</th><th>Query</th><th></th></tr></thead>
+                        <tbody>
+                            <template x-for="process in processes" :key="process.id">
+                                <tr>
+                                    <td class="num" x-text="process.id"></td>
+                                    <td class="mono" x-text="process.database || ''"></td>
+                                    <td x-text="process.command + (process.state ? ' · ' + process.state : '')"></td>
+                                    <td class="num" x-text="process.seconds + ' s'"></td>
+                                    <td class="mono pre process-query" x-text="process.query || ''"></td>
+                                    <td class="nowrap">
+                                        <button type="button" class="link danger" x-show="process.query" @click="killProcess(process.id, false)" :disabled="busy">Stop query</button>
+                                        <button type="button" class="link danger" @click="killProcess(process.id, true)" :disabled="busy">Disconnect</button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+                <footer>
+                    <button type="button" class="button" @click="loadProcesses()" :disabled="busy" :class="{ 'is-loading': processesLoading }">Refresh</button>
+                    <button type="button" class="button primary" @click="closeModal()">Close</button>
+                </footer>
+            </div>
 
             <!-- Danger -->
             <div x-show="modal === 'danger'">
@@ -647,6 +946,10 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
             </div>
         </div>
     </div>
+
+    <datalist id="collation-list">
+        <template x-for="name in collations" :key="name"><option :value="name"></option></template>
+    </datalist>
 
     <div class="toasts" aria-live="assertive">
         <template x-for="toast in toasts" :key="toast.id">

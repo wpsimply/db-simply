@@ -185,6 +185,9 @@ final class TransferTest extends TestCase
             'CREATE TRIGGER kinds_amount BEFORE INSERT ON kinds FOR EACH ROW BEGIN IF NEW.amount IS NULL THEN SET NEW.amount = 0; END IF; END',
             'CREATE VIEW parent_labels AS SELECT label FROM b_parent',
             'CREATE VIEW a_labels AS SELECT label FROM parent_labels',
+            "CREATE FUNCTION label_of(x INT) RETURNS VARCHAR(20) READS SQL DATA BEGIN DECLARE l VARCHAR(20); SELECT label INTO l FROM b_parent WHERE id = x; RETURN CONCAT(l, ';'); END",
+            'CREATE PROCEDURE bump(IN by_amount DECIMAL(10, 2)) BEGIN UPDATE kinds SET amount = amount + by_amount WHERE id = 1; END',
+            'CREATE EVENT tidy ON SCHEDULE EVERY 1 HOUR DISABLE DO DELETE FROM kinds WHERE id > 1000',
         ];
     }
 
@@ -204,6 +207,9 @@ final class TransferTest extends TestCase
         }
 
         $snapshot['triggers'] = $client->select('SELECT TRIGGER_NAME, ACTION_STATEMENT FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE()');
+        $snapshot['routines'] = $client->select('SELECT ROUTINE_NAME, ROUTINE_TYPE, ROUTINE_DEFINITION FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE() ORDER BY ROUTINE_NAME');
+        $snapshot['events'] = $client->select('SELECT EVENT_NAME, EVENT_DEFINITION, STATUS FROM information_schema.EVENTS WHERE EVENT_SCHEMA = DATABASE()');
+        $snapshot['label'] = $client->value('SELECT label_of(1)');
 
         return $snapshot;
     }

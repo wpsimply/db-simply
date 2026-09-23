@@ -27,6 +27,37 @@ document.addEventListener('alpine:init', () => {
 
     const emptyEditor = () => ({ mode: 'edit', loading: false, fields: [], texts: {}, modes: {}, locked: {}, original: { texts: {}, modes: {} }, key: null });
 
+    const TYPE_GROUPS = [
+        ['Numbers', ['TINYINT', 'SMALLINT', 'MEDIUMINT', 'INT', 'BIGINT', 'DECIMAL', 'FLOAT', 'DOUBLE', 'BIT']],
+        ['Text', ['CHAR', 'VARCHAR', 'TINYTEXT', 'TEXT', 'MEDIUMTEXT', 'LONGTEXT', 'JSON', 'ENUM', 'SET']],
+        ['Binary', ['BINARY', 'VARBINARY', 'TINYBLOB', 'BLOB', 'MEDIUMBLOB', 'LONGBLOB']],
+        ['Date and time', ['DATE', 'DATETIME', 'TIMESTAMP', 'TIME', 'YEAR']],
+    ];
+
+    const LENGTH_TYPES = ['TINYINT', 'SMALLINT', 'MEDIUMINT', 'INT', 'BIGINT', 'DECIMAL', 'FLOAT', 'DOUBLE', 'BIT', 'CHAR', 'VARCHAR', 'BINARY', 'VARBINARY', 'DATETIME', 'TIMESTAMP', 'TIME'];
+
+    /**
+     * The length a type starts with when it is picked: what a new column of
+     * that type is most often given, or nothing.
+     */
+    const DEFAULT_LENGTHS = { VARCHAR: '255', VARBINARY: '255', CHAR: '1', BINARY: '1', DECIMAL: '10,2' };
+
+    const TEXT_TYPES = ['CHAR', 'VARCHAR', 'TINYTEXT', 'TEXT', 'MEDIUMTEXT', 'LONGTEXT', 'ENUM', 'SET'];
+
+    const OBJECT_TEMPLATES = {
+        view: (table) => `CREATE VIEW \`new_view\` AS\nSELECT * FROM \`${table}\`;\n`,
+        procedure: () => 'DELIMITER ;;\nCREATE PROCEDURE `new_procedure`(IN amount INT)\nBEGIN\n    SELECT amount;\nEND;;\nDELIMITER ;\n',
+        function: () => 'DELIMITER ;;\nCREATE FUNCTION `new_function`(x INT) RETURNS INT\nDETERMINISTIC\nBEGIN\n    RETURN x * 2;\nEND;;\nDELIMITER ;\n',
+        trigger: (table) => `DELIMITER ;;\nCREATE TRIGGER \`new_trigger\` BEFORE INSERT ON \`${table}\`\nFOR EACH ROW\nBEGIN\n    -- SET NEW.column = ...;\nEND;;\nDELIMITER ;\n`,
+        event: (table) => `CREATE EVENT \`new_event\`\nON SCHEDULE EVERY 1 DAY\nDO\n    DELETE FROM \`${table}\` WHERE 0;\n`,
+    };
+
+    /**
+     * A CREATE statement without its DEFINER clause, so it runs as whoever
+     * runs it; the server refuses another definer without SUPER.
+     */
+    const withoutDefiner = (sql) => sql.replace(/\sDEFINER\s*=\s*(?:`(?:[^`]|``)*`|\S+?)@(?:`(?:[^`]|``)*`|\S+)(?=\s)/i, '');
+
     const emptyBrowse = () => ({ columns: [], rows: [], key: null, offset: 0, hasMore: false, total: null, exact: true, error: '' });
 
     Alpine.data('dbAdmin', () => ({
@@ -80,6 +111,22 @@ document.addEventListener('alpine:init', () => {
         importCancelled: false,
         lastSql: '',
 
+        typeGroups: TYPE_GROUPS,
+        design: null,
+        designLoading: false,
+        collations: [],
+        column: null,
+        indexForm: { kind: 'index', name: '', columns: [] },
+        optionsForm: { engine: 'InnoDB', collation: '', comment: '', convert: false },
+        newTable: { name: '', engine: 'InnoDB', collation: '', columns: [] },
+        review: { sql: '', change: null, destructive: false, back: null, backTitle: '' },
+        objects: null,
+        objectsLoading: false,
+        definition: { type: '', name: '', sql: null },
+        dbSearch: { term: '', result: null },
+        processes: [],
+        processesLoading: false,
+
         urlReady: false,
         pending: 0,
         action: null,
@@ -126,6 +173,10 @@ document.addEventListener('alpine:init', () => {
             if (!table || !this.tables.some((item) => item.name === table)) {
                 if (tab === 'sql') {
                     this.openSql(null);
+                } else if (tab === 'objects') {
+                    await this.openObjects();
+                } else if (tab === 'search') {
+                    this.openSearch();
                 }
 
                 return;
@@ -1238,6 +1289,417 @@ document.addEventListener('alpine:init', () => {
             }[job.state] || '';
         },
 
+        // ---- Structure ------------------------------------------------------
+
+        structureEditable() {
+            return this.canWrite() && this.structure !== null && !this.structure.table.view;
+        },
+
+        defaultLength(type) {
+            return DEFAULT_LENGTHS[type] || '';
+        },
+
+        typeTakesLength(type) {
+            return LENGTH_TYPES.includes(type);
+        },
+
+        typeIsText(type) {
+            return TEXT_TYPES.includes(type);
+        },
+
+        async loadDesign() {
+            this.designLoading = true;
+
+            try {
+                this.design = await this.api('design', { query: { db: this.db, table: this.table } });
+                this.collations = this.design.collations;
+            } finally {
+                this.designLoading = false;
+            }
+        },
+
+        async loadCollations() {
+            if (this.collations.length === 0) {
+                try {
+                    this.collations = await this.api('collations', { query: { db: this.db } });
+                } catch {
+                    // Only suggestions; the field still takes any name.
+                }
+            }
+        },
+
+        async openColumn(name) {
+            this.column = null;
+            this.modalTitle = name === null ? `Add a column to ${this.table}` : `Change column ${name}`;
+            this.modal = 'column';
+
+            try {
+                await this.loadDesign();
+            } catch (error) {
+                this.modal = null;
+                this.fail(error);
+                return;
+            }
+
+            if (name === null) {
+                this.column = {
+                    name: '', type: 'VARCHAR', length: '255', valuesText: '', unsigned: false, nullable: true,
+                    default: { kind: 'none', value: '' }, onUpdateCurrentTimestamp: false, autoIncrement: false,
+                    collation: '', comment: '', original: null, position: 'last',
+                };
+                return;
+            }
+
+            const described = this.design.columns.find((column) => column.name === name);
+
+            if (described.generated) {
+                this.modal = null;
+                this.notify('A generated column is changed with ALTER TABLE in the SQL tab.', 'error');
+                return;
+            }
+
+            this.column = { ...described, default: { ...described.default }, valuesText: described.values.join('\n'), original: name, position: 'keep' };
+        },
+
+        columnPositions() {
+            if (!this.design || !this.column) {
+                return [];
+            }
+
+            const others = this.design.columns.map((column) => column.name).filter((name) => name !== this.column.original);
+            const first = this.column.original === null ? [['last', 'At the end'], ['first', 'First']] : [['keep', 'Where it is'], ['first', 'First']];
+
+            return [...first, ...others.map((name) => ['after:' + name, 'After ' + name])];
+        },
+
+        columnPayload(column) {
+            return {
+                name: column.name.trim(),
+                type: column.type,
+                length: ['ENUM', 'SET'].includes(column.type) ? '' : String(column.length || '').trim(),
+                values: String(column.valuesText || '').split('\n').map((value) => value.trim()).filter((value) => value !== ''),
+                unsigned: Boolean(column.unsigned),
+                nullable: Boolean(column.nullable),
+                default: { kind: column.default.kind, value: column.default.value },
+                onUpdateCurrentTimestamp: Boolean(column.onUpdateCurrentTimestamp),
+                autoIncrement: Boolean(column.autoIncrement),
+                collation: TEXT_TYPES.includes(column.type) ? String(column.collation || '').trim() : '',
+                comment: column.comment || '',
+            };
+        },
+
+        submitColumn() {
+            const position = this.column.position === 'first'
+                ? 'first'
+                : (String(this.column.position).startsWith('after:') ? { after: this.column.position.slice(6) } : null);
+
+            const change = this.column.original === null
+                ? { operation: 'add-column', column: this.columnPayload(this.column), position }
+                : { operation: 'modify-column', name: this.column.original, column: this.columnPayload(this.column), position };
+
+            this.reviewSchema(change, this.modalTitle, false, 'column');
+        },
+
+        openIndex() {
+            this.indexForm = { kind: 'index', name: '', columns: [{ name: this.structure.columns[0].name, length: '' }] };
+            this.modalTitle = `Add an index to ${this.table}`;
+            this.modal = 'index';
+        },
+
+        submitIndex() {
+            this.reviewSchema({ operation: 'add-index', index: this.indexForm }, this.modalTitle, false, 'index');
+        },
+
+        openTableOptions() {
+            const table = this.structure.table;
+            this.optionsForm = { engine: table.engine || 'InnoDB', collation: table.collation || '', comment: table.comment || '', convert: false };
+            this.modalTitle = `Options of ${this.table}`;
+            this.modal = 'options';
+            this.loadCollations();
+        },
+
+        submitTableOptions() {
+            const table = this.structure.table;
+            const change = { operation: 'options' };
+
+            // Only what changed: even ENGINE=InnoDB on an InnoDB table rebuilds it.
+            if (this.optionsForm.engine !== table.engine) change.engine = this.optionsForm.engine;
+            if (this.optionsForm.collation.trim() !== (table.collation || '')) change.collation = this.optionsForm.collation.trim();
+            if (this.optionsForm.comment !== (table.comment || '')) change.comment = this.optionsForm.comment;
+
+            if (this.optionsForm.convert && this.optionsForm.collation.trim() !== '') {
+                change.collation = this.optionsForm.collation.trim();
+                change.convert = true;
+            }
+
+            if (Object.keys(change).length === 1) {
+                this.notify('Nothing was changed.');
+                return;
+            }
+
+            this.reviewSchema(change, this.modalTitle, false, 'options');
+        },
+
+        blankColumn() {
+            return { name: '', type: 'VARCHAR', length: '255', defaultText: '', nullable: true, autoIncrement: false, primary: false, unsigned: false };
+        },
+
+        openCreateTable() {
+            this.newTable = {
+                name: '',
+                engine: 'InnoDB',
+                collation: '',
+                columns: [
+                    { name: 'id', type: 'INT', length: '', defaultText: '', nullable: false, autoIncrement: true, primary: true, unsigned: true },
+                    this.blankColumn(),
+                ],
+            };
+            this.modalTitle = `New table in ${this.db}`;
+            this.modal = 'create-table';
+            this.loadCollations();
+        },
+
+        submitCreateTable() {
+            const columns = this.newTable.columns.filter((column) => column.name.trim() !== '').map((column) => {
+                const text = column.defaultText.trim();
+                const upper = text.toUpperCase();
+                const list = ['ENUM', 'SET'].includes(column.type);
+
+                return {
+                    name: column.name.trim(),
+                    type: column.type,
+                    length: list ? '' : column.length,
+                    values: list ? column.length.split(',').map((value) => value.trim()).filter((value) => value !== '') : [],
+                    unsigned: Boolean(column.unsigned),
+                    nullable: column.nullable,
+                    default: text === ''
+                        ? { kind: 'none' }
+                        : (upper === 'NULL' ? { kind: 'null' } : (/^CURRENT_TIMESTAMP(\(\))?$/.test(upper) ? { kind: 'current_timestamp' } : { kind: 'value', value: column.defaultText })),
+                    autoIncrement: column.autoIncrement,
+                    primary: column.primary,
+                };
+            });
+
+            this.reviewSchema({
+                operation: 'create-table',
+                name: this.newTable.name.trim(),
+                engine: this.newTable.engine,
+                collation: this.newTable.collation.trim(),
+                columns,
+            }, this.modalTitle, false, 'create-table');
+        },
+
+        /**
+         * Build a structure change on the server without running it, and
+         * show the statement for the user to run or go back from.
+         */
+        async reviewSchema(change, title, destructive, back = null) {
+            await this.run(async () => {
+                const full = change.operation === 'create-table' ? change : { ...change, table: this.table };
+                const data = await this.api('schema', { query: { db: this.db }, body: { change: full, preview: true } });
+
+                this.review = { sql: data.sql, change: full, destructive, back, backTitle: this.modalTitle };
+                this.modalTitle = title;
+                this.modal = 'review';
+            }, 'preview');
+        },
+
+        backFromReview() {
+            if (this.review.back) {
+                this.modal = this.review.back;
+                this.modalTitle = this.review.backTitle;
+            } else {
+                this.modal = null;
+            }
+        },
+
+        async runSchema() {
+            await this.run(async () => {
+                const change = this.review.change;
+                await this.api('schema', { query: { db: this.db }, body: { change, preview: false } });
+
+                this.modal = null;
+                this.notify('Done.');
+                await this.loadTables();
+
+                if (change.operation === 'create-table') {
+                    await this.openTable(change.name, { tab: 'structure' });
+                    return;
+                }
+
+                this.structure = null;
+                this.browse = emptyBrowse();
+                await this.loadStructure();
+            }, 'schema');
+        },
+
+        // ---- Routines and events --------------------------------------------
+
+        async openObjects() {
+            this.table = null;
+            this.tab = 'objects';
+            await this.loadObjects();
+        },
+
+        async loadObjects() {
+            this.objectsLoading = true;
+
+            try {
+                this.objects = await this.api('objects', { query: { db: this.db } });
+            } catch (error) {
+                this.fail(error);
+            } finally {
+                this.objectsLoading = false;
+            }
+        },
+
+        objectGroups() {
+            return [
+                { type: 'procedure', title: 'Procedures', items: this.objects.procedures },
+                { type: 'function', title: 'Functions', items: this.objects.functions },
+                { type: 'trigger', title: 'Triggers', items: this.objects.triggers },
+                { type: 'event', title: 'Events', items: this.objects.events },
+                { type: 'view', title: 'Views', items: this.objects.views },
+            ];
+        },
+
+        objectSummary(type, item) {
+            return {
+                procedure: () => (item.comment || ''),
+                function: () => 'returns ' + item.returns,
+                trigger: () => `${item.timing.toLowerCase()} ${item.event.toLowerCase()} on ${item.table}`,
+                event: () => `${item.schedule}, ${item.status.toLowerCase()}` + (item.lastRun ? `, last ran ${item.lastRun}` : ''),
+                view: () => '',
+            }[type]();
+        },
+
+        async showDefinition(type, name) {
+            await this.run(async () => {
+                const data = await this.api('definition', { query: { db: this.db, type, name } });
+                this.definition = { type, name, sql: data.sql };
+                this.modalTitle = `${type.charAt(0).toUpperCase() + type.slice(1)} ${name}`;
+                this.modal = 'definition';
+            }, 'definition');
+        },
+
+        /**
+         * Open an object's definition in the SQL editor as a script that
+         * replaces it: drop, then create again.
+         */
+        async editDefinition(type, name, sql = null) {
+            if (sql === null) {
+                try {
+                    sql = (await this.api('definition', { query: { db: this.db, type, name } })).sql;
+                } catch (error) {
+                    this.fail(error);
+                    return;
+                }
+            }
+
+            if (sql === null) {
+                this.notify('The server does not show this definition to you.', 'error');
+                return;
+            }
+
+            const drop = `DROP ${type.toUpperCase()} IF EXISTS ${quoteIdentifier(name)};\n`;
+
+            this.modal = null;
+            this.table = null;
+            this.sqlResults = [];
+            this.sql = type === 'view'
+                ? `${drop}${withoutDefiner(sql)};\n`
+                : `${drop}DELIMITER ;;\n${withoutDefiner(sql)};;\nDELIMITER ;\n`;
+            this.openSql(null);
+        },
+
+        newObject(kind) {
+            const table = this.tables.find((item) => !item.view);
+
+            this.table = null;
+            this.sqlResults = [];
+            this.sql = OBJECT_TEMPLATES[kind](table ? table.name : 'table_name');
+            this.openSql(null);
+        },
+
+        confirmDropObject(type, name) {
+            this.confirmDanger({
+                title: `Drop the ${type} ${name}?`,
+                message: `The ${type} is removed for good. Anything that uses it stops working.`,
+                label: 'Drop',
+                phrase: name,
+                run: async () => {
+                    await this.api('drop-object', { query: { db: this.db }, body: { type, name } });
+                    this.notify(`Dropped ${name}.`);
+                    await Promise.all([this.loadObjects(), this.loadTables()]);
+                },
+            });
+        },
+
+        // ---- Search ---------------------------------------------------------
+
+        openSearch() {
+            this.table = null;
+            this.tab = 'search';
+            this.$nextTick(() => this.$refs.databaseSearch.focus());
+        },
+
+        async searchDatabase() {
+            const term = this.dbSearch.term.trim();
+
+            await this.run(async () => {
+                const result = await this.api('search', { query: { db: this.db, q: term } });
+                this.dbSearch = { term, result: { ...result, term } };
+            }, 'search');
+        },
+
+        searchSummary() {
+            const result = this.dbSearch.result;
+            const tables = result.results.length;
+
+            if (tables === 0) {
+                return `"${result.term}" was not found in the ${result.searched} tables searched.`;
+            }
+
+            const rows = result.results.reduce((sum, hit) => sum + hit.matches, 0);
+
+            return `"${result.term}" is in ${rows.toLocaleString()} row${rows === 1 ? '' : 's'} of ${tables} table${tables === 1 ? '' : 's'}.`;
+        },
+
+        async openSearchHit(table) {
+            this.resetBrowse();
+            this.search = this.appliedSearch = this.dbSearch.result.term;
+            await this.openTable(table, { tab: 'browse', keepState: true });
+        },
+
+        // ---- Processes --------------------------------------------------------
+
+        async openProcesses() {
+            this.processes = [];
+            this.modalTitle = 'Processes';
+            this.modal = 'processes';
+            await this.loadProcesses();
+        },
+
+        async loadProcesses() {
+            this.processesLoading = true;
+
+            try {
+                this.processes = await this.api('processes');
+            } catch (error) {
+                this.fail(error);
+            } finally {
+                this.processesLoading = false;
+            }
+        },
+
+        async killProcess(id, connection) {
+            await this.run(async () => {
+                await this.api('kill', { body: { id, connection } });
+                this.notify(connection ? 'Disconnected.' : 'Query stopped.');
+                await this.loadProcesses();
+            }, 'kill');
+        },
+
         // ---- Modals and notices --------------------------------------------
 
         closeModal() {
@@ -1254,6 +1716,7 @@ document.addEventListener('alpine:init', () => {
          */
         modalLocked() {
             return this.action === 'danger'
+                || this.action === 'schema'
                 || (this.modal === 'import' && this.importJob !== null && ['uploading', 'ready', 'running'].includes(this.importJob.state));
         },
 

@@ -6,10 +6,13 @@ A small, self-hosted web UI for MariaDB and MySQL, built to sit next to a hostin
 - Browse any table page by page: sort by any column, filter with conditions, search every text column; long and binary values are shown safely, and opened in full on click
 - JSON and PHP-serialized values (WordPress options and meta) are decoded for reading; classes are never instantiated
 - Edit, insert, copy and delete rows. Rows are always picked out by their primary or unique key, and every change touches one row per key at most
-- Structure: columns, indexes, foreign keys, triggers and the `CREATE` statement
+- Structure: columns, indexes, foreign keys, triggers and the `CREATE` statement, and changing it: add, change and drop columns and indexes, table options, new tables. Every change shows the statement it will run first
+- Stored procedures and functions, triggers, events and views: list them, show their definitions, open them in the SQL editor to change them, drop them
+- Search a whole database for a value, table by table, and open the matching rows
+- See your own queries running on the server, and stop them
 - Table operations: rename, empty, truncate, drop, optimize, analyze, check and repair, one table or several at once
 - SQL console: runs several statements in order, stops at the first error, cuts long results off, and asks before anything that throws data away (`DROP`, `TRUNCATE`, `DELETE` or `UPDATE` without `WHERE`)
-- Export a database or some of its tables as an SQL dump (optionally gzipped), a table's rows or a query's result as CSV. Exports stream, so their size is not limited by memory
+- Export a database or some of its tables as an SQL dump (optionally gzipped), a table's rows or a query's result as CSV. A whole database takes its procedures, functions and events along. Exports stream, so their size is not limited by memory
 - Import `.sql` and `.sql.gz` files of any size: uploaded in chunks, run in slices of a few seconds each, and resumable past a failed statement
 - Read-only sessions, for support access
 - The URL records the database, table, tab, page, sort and filters, so a reload lands on the same view and every tab can work in a database of its own
@@ -26,7 +29,7 @@ A small, self-hosted web UI for MariaDB and MySQL, built to sit next to a hostin
 Download the zip from the [latest release](https://github.com/wpsimply/db-admin/releases/latest). It holds only the files a server needs, inside a single `db-admin/` directory:
 
 ```sh
-version=0.2.0
+version=0.3.0
 curl -fsSLO "https://github.com/wpsimply/db-admin/releases/download/v${version}/db-admin-${version}.zip"
 curl -fsSLO "https://github.com/wpsimply/db-admin/releases/download/v${version}/db-admin-${version}.zip.sha256"
 sha256sum -c "db-admin-${version}.zip.sha256"
@@ -118,7 +121,9 @@ The token is spent on first use and expires after `DB_ADMIN_TOKEN_TTL` seconds e
 - **Scope the database user.** What a session can reach is exactly what its user's privileges allow. Give each account a user with privileges on its own databases only, and no global privileges such as `FILE`, `PROCESS` or `SUPER`.
 - The password is kept in the server-side session encrypted, under a key held only in a cookie of its own. The session file alone does not reveal it.
 - `LOAD DATA LOCAL INFILE` is switched off on every connection, so a query cannot read files the web server can see.
-- Read-only sessions refuse any statement that is not a read, and run on the server in read-only transactions as well. They cannot edit rows, run table operations or import.
+- Read-only sessions refuse any statement that is not a read, and run on the server in read-only transactions as well. They cannot edit rows, change structure, drop objects, run table operations or import.
+- Structure changes are built from checked parts, never from text the browser sends: types come from a fixed list, lengths must be numbers, names are quoted, values are quoted literals, and the only default expression is `CURRENT_TIMESTAMP`. Anything else is written in the SQL editor, where it is plain to see.
+- The process list shows only the signed-in user's own connections, and only those can be stopped.
 - Imports are kept in `storage/imports` while they run, readable by the pool user only, and belong to the session that started them. Finished and cancelled imports are deleted at once, abandoned ones after a day.
 - Dumps leave `DEFINER` clauses out, so views and triggers import as the importing user. On MySQL with binary logging, creating a trigger needs `SUPER` unless the server sets `log_bin_trust_function_creators = 1`.
 - Tokens are single-use and short-lived. Pages are sent with `Referrer-Policy: no-referrer`, so the token URL doesn't leak to other sites.
@@ -159,10 +164,9 @@ The release workflow runs the test suite, then builds `db-admin-<version>.zip` w
 
 ## Roadmap
 
-- Structure editing: add, change and drop columns and indexes, create tables, with the generated `ALTER` shown first
-- Search across a whole database
-- Views, stored procedures and functions, triggers and events: list, show, drop, and include them in dumps
-- The server's process list for the user's own connections
+- Foreign keys: add and drop them from the Structure tab
+- Search and replace across a database, safe for PHP-serialized values
+- Syntax highlighting in the SQL editor
 
 ## License
 

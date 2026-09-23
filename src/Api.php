@@ -15,13 +15,13 @@ namespace DbAdmin;
  */
 final class Api
 {
-    private const array READS = ['session', 'databases', 'tables', 'structure', 'rows', 'value', 'row', 'fields'];
+    private const array READS = ['session', 'databases', 'tables', 'structure', 'rows', 'value', 'row', 'fields', 'design', 'collations', 'objects', 'definition', 'search', 'processes'];
 
     /**
      * Changes a read-only session may not make. (The console checks its
      * statements itself.)
      */
-    private const array WRITES = ['insert', 'update', 'delete', 'table'];
+    private const array WRITES = ['insert', 'update', 'delete', 'table', 'schema', 'drop-object'];
 
     private ?Client $client = null;
 
@@ -159,6 +159,59 @@ final class Api
                     $body['name'] ?? null,
                 );
 
+            case 'design':
+                $db = $database();
+                $name = $table($db);
+                $client = $this->client($grant);
+
+                return [
+                    'table' => $catalog->table($db, $name),
+                    'columns' => array_map(static fn (array $column): array => Schema::describe($column, $client->isMariaDb()), $catalog->columns($db, $name)),
+                    'collations' => $this->collations($client),
+                ];
+
+            case 'collations':
+                return $this->collations($this->client($grant));
+
+            case 'schema':
+                $change = $body['change'] ?? null;
+
+                if (! is_array($change)) {
+                    throw new UserError('Describe the change.');
+                }
+
+                return (new Schema($this->client($grant), $catalog))->apply($database(), $change, ($body['preview'] ?? true) !== false);
+
+            case 'objects':
+                return (new Objects($this->client($grant), $catalog))->all($database());
+
+            case 'definition':
+                return ['sql' => (new Objects($this->client($grant), $catalog))->definition($database(), $query['type'] ?? null, $query['name'] ?? null)];
+
+            case 'drop-object':
+                (new Objects($this->client($grant), $catalog))->drop($database(), $body['type'] ?? null, $body['name'] ?? null);
+
+                return ['ok' => true];
+
+            case 'search':
+                $db = $database();
+                $tables = $this->jsonParameter($query['tables'] ?? null);
+
+                return (new Search($this->client($grant), $catalog, $this->rows($catalog)))->run(
+                    $db,
+                    (string) ($query['q'] ?? ''),
+                    array_map(static fn (mixed $name): string => $catalog->table($db, $name)['name'], array_values($tables)),
+                    (float) max(1, $this->config->int('import.budget')),
+                );
+
+            case 'processes':
+                return (new Processes($this->client($grant), $grant['user']))->all();
+
+            case 'kill':
+                (new Processes($this->client($grant), $grant['user']))->kill($body['id'] ?? null, ($body['connection'] ?? false) === true);
+
+                return ['ok' => true];
+
             case 'query':
                 $sql = $body['sql'] ?? null;
 
@@ -227,6 +280,24 @@ final class Api
         $hidden = $this->config->get('hidden_databases');
 
         return new Catalog($this->client($grant), is_array($hidden) ? array_values(array_filter($hidden, is_string(...))) : []);
+    }
+
+    /**
+     * Collation names to offer in the structure forms: the utf8mb4 ones,
+     * which are what a new column should almost always use, then the rest
+     * of the common character sets.
+     *
+     * @return list<string>
+     */
+    private function collations(Client $client): array
+    {
+        $names = array_column($client->select(
+            "SHOW COLLATION WHERE Charset IN ('utf8mb4', 'utf8mb3', 'utf8', 'latin1', 'ascii', 'binary')"
+        ), 'Collation');
+
+        usort($names, static fn (string $a, string $b): int => [! str_starts_with($a, 'utf8mb4'), $a] <=> [! str_starts_with($b, 'utf8mb4'), $b]);
+
+        return array_values(array_map(strval(...), $names));
     }
 
     private function editor(Catalog $catalog): Editor

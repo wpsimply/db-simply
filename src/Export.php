@@ -110,6 +110,12 @@ final class Export
                     self::withoutDefiner($create),
                 ));
             }
+
+            // A whole database takes its procedures, functions and events
+            // along; a few chosen tables do not.
+            if ($tables === []) {
+                $this->write((new Objects($this->client, $this->catalog))->dump($database));
+            }
         }
 
         $this->client->query('COMMIT');
