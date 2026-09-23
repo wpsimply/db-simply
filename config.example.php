@@ -47,7 +47,7 @@ return [
 
     'session' => [
         'save_path' => __DIR__.'/storage/sessions',
-        'name' => 'DbAdminSession',
+        'name' => 'DbSimplySession',
         'secure' => true,
         'idle_timeout' => 1800,
         'lifetime' => 28800,
@@ -59,7 +59,7 @@ return [
      */
     'panel_url' => null,
 
-    'title' => 'DB Admin',
+    'title' => 'DB Simply',
 
     'limits' => [
         // Rows per page when browsing a table.

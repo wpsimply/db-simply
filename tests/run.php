@@ -7,13 +7,13 @@ declare(strict_types=1);
  *
  * Every public method named test* on a class in tests/*Test.php runs on a
  * fresh instance, with setUp()/tearDown() around it. Tests that need a
- * database connect to DB_ADMIN_TEST_HOST (and DB_ADMIN_TEST_PORT,
- * DB_ADMIN_TEST_USER, DB_ADMIN_TEST_PASSWORD, DB_ADMIN_TEST_DATABASE), and
+ * database connect to DB_SIMPLY_TEST_HOST (and DB_SIMPLY_TEST_PORT,
+ * DB_SIMPLY_TEST_USER, DB_SIMPLY_TEST_PASSWORD, DB_SIMPLY_TEST_DATABASE), and
  * are skipped when it is not set. They drop and recreate every table in the
  * test database, so never point them at one holding data you care about.
  */
 
-namespace DbAdmin\Tests;
+namespace DbSimply\Tests;
 
 use Throwable;
 
@@ -77,8 +77,8 @@ printf(
     $results['fail'],
     $results['skip'],
     microtime(true) - $started,
-    $results['skip'] > 0 && getenv('DB_ADMIN_TEST_HOST') === false
-        ? ' - set DB_ADMIN_TEST_HOST to run the database tests'
+    $results['skip'] > 0 && getenv('DB_SIMPLY_TEST_HOST') === false
+        ? ' - set DB_SIMPLY_TEST_HOST to run the database tests'
         : '',
 );
 

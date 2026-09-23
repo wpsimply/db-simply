@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin;
+namespace DbSimply;
 
 /**
  * Database, table and column names in SQL.

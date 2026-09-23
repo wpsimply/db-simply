@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin;
+namespace DbSimply;
 
 /**
  * Recognises what a column value holds and renders a readable version of it.

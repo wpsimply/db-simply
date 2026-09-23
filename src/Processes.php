@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin;
+namespace DbSimply;
 
 /**
  * The signed-in user's own connections to the server, and stopping them.

@@ -1,11 +1,11 @@
 /*
- * DB Admin UI. Plain Alpine.js, no build step.
+ * DB Simply UI. Plain Alpine.js, no build step.
  *
  * Cells from the API are null, a string, {"$b64": "..."} for binary data, or
  * {"$t" | "$b64": "...", "len": n} for the start of a longer value.
  */
 document.addEventListener('alpine:init', () => {
-    const HISTORY_KEY = 'db-admin:history';
+    const HISTORY_KEY = 'db-simply:history';
     const HISTORY_SIZE = 30;
 
     const isObject = (value) => value !== null && typeof value === 'object';
@@ -58,9 +58,54 @@ document.addEventListener('alpine:init', () => {
      */
     const withoutDefiner = (sql) => sql.replace(/\sDEFINER\s*=\s*(?:`(?:[^`]|``)*`|\S+?)@(?:`(?:[^`]|``)*`|\S+)(?=\s)/i, '');
 
+    const SQL_KEYWORDS = new Set(`
+        ADD AFTER ALGORITHM ALL ALTER ANALYZE AND AS ASC AUTO_INCREMENT BEFORE BEGIN BETWEEN BIGINT BINARY BLOB BOTH BY CALL CASCADE CASE CAST
+        CHANGE CHAR CHARACTER CHARSET CHECK COLLATE COLUMN COLUMNS COMMENT COMMIT CONSTRAINT CONVERT CREATE CROSS CURRENT_TIMESTAMP DATABASE
+        DATABASES DATE DATETIME DECIMAL DECLARE DEFAULT DEFINER DELETE DELIMITER DESC DESCRIBE DETERMINISTIC DISABLE DISTINCT DO DOUBLE DROP
+        DUPLICATE EACH ELSE ELSEIF ENABLE END ENGINE ENUM EVENT EVERY EXISTS EXPLAIN FALSE FIRST FLOAT FOR FOREIGN FROM FULL FULLTEXT FUNCTION
+        GRANT GROUP HAVING HOUR IF IGNORE IN INDEX INNER INOUT INSERT INT INTEGER INTERVAL INTO IS ITERATE JOIN JSON KEY KEYS KILL LEAVE LEFT
+        LIKE LIMIT LOCK LONGBLOB LONGTEXT LOOP MEDIUMINT MEDIUMTEXT MODIFY NOT NULL OFFSET ON OPTIMIZE OR ORDER OUT OUTER PRIMARY PROCEDURE
+        READS REFERENCES REGEXP RENAME REPAIR REPEAT REPLACE RESTRICT RETURN RETURNS RIGHT ROLLBACK ROW SCHEDULE SECURITY SELECT SET SHOW
+        SIGNED SMALLINT SQL START TABLE TABLES TEMPORARY TEXT THEN TIME TIMESTAMP TINYINT TINYTEXT TO TRANSACTION TRIGGER TRUE TRUNCATE UNION
+        UNIQUE UNLOCK UNSIGNED UPDATE USE USING VALUES VARBINARY VARCHAR VIEW WHEN WHERE WHILE WITH YEAR ZEROFILL
+    `.trim().split(/\s+/));
+
+    /**
+     * Split SQL into highlighted pieces: [kind, text] pairs that together
+     * are exactly the input. Close enough to the server's own rules to read
+     * well; the Splitter on the server is what decides what runs.
+     */
+    const tokenizeSql = (sql) => {
+        const pattern = /(--[ \t][^\n]*|--$|#[^\n]*|\/\*[\s\S]*?(?:\*\/|$))|('(?:[^'\\]|\\[\s\S]|'')*(?:'|$)|"(?:[^"\\]|\\[\s\S]|"")*(?:"|$))|(`(?:[^`]|``)*(?:`|$))|(\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|\b0x[0-9a-fA-F]+\b)|(@@?[\w.$]+)|([A-Za-z_][\w$]*)/gm;
+        const tokens = [];
+        let last = 0;
+
+        for (const match of sql.matchAll(pattern)) {
+            if (match.index > last) {
+                tokens.push(['', sql.slice(last, match.index)]);
+            }
+
+            const kind = match[1] ? 'comment'
+                : match[2] ? 'string'
+                : match[3] ? 'identifier'
+                : match[4] ? 'number'
+                : match[5] ? 'variable'
+                : (SQL_KEYWORDS.has(match[6].toUpperCase()) ? 'keyword' : '');
+
+            tokens.push([kind, match[0]]);
+            last = match.index + match[0].length;
+        }
+
+        if (last < sql.length) {
+            tokens.push(['', sql.slice(last)]);
+        }
+
+        return tokens;
+    };
+
     const emptyBrowse = () => ({ columns: [], rows: [], key: null, offset: 0, hasMore: false, total: null, exact: true, error: '' });
 
-    Alpine.data('dbAdmin', () => ({
+    Alpine.data('dbSimply', () => ({
         csrf: document.querySelector('meta[name="csrf-token"]').content,
         isMac: /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent),
         session: { label: '', readonly: false, operators: [], limits: { pageSize: 50 } },
@@ -126,6 +171,10 @@ document.addEventListener('alpine:init', () => {
         dbSearch: { term: '', result: null },
         processes: [],
         processesLoading: false,
+        referentialActions: ['RESTRICT', 'CASCADE', 'SET NULL', 'NO ACTION'],
+        foreignKey: { name: '', referencedTable: '', onDelete: 'RESTRICT', onUpdate: 'RESTRICT', pairs: [], referencedColumns: [] },
+        searchMode: 'find',
+        replacer: { search: '', replace: '', preview: null, running: false, done: false, stop: false, changed: {} },
 
         urlReady: false,
         pending: 0,
@@ -321,6 +370,8 @@ document.addEventListener('alpine:init', () => {
 
         async selectDatabase() {
             this.tableSelection = [];
+            this.replacer = { ...this.replacer, preview: null, done: false, changed: {} };
+            this.dbSearch = { ...this.dbSearch, result: null };
             this.table = null;
             this.tab = 'tables';
             this.tableFilter = '';
@@ -686,6 +737,49 @@ document.addEventListener('alpine:init', () => {
         },
 
         // ---- SQL ----------------------------------------------------------
+
+        /**
+         * Draw the highlighted copy of the editor's text behind it. Built
+         * from text nodes, never HTML, so nothing in a query can become
+         * markup.
+         */
+        paintSql(sql) {
+            const target = this.$refs.sqlHighlight;
+
+            if (!target) {
+                return;
+            }
+
+            const fragment = document.createDocumentFragment();
+
+            tokenizeSql(sql).forEach(([kind, text]) => {
+                if (kind === '') {
+                    fragment.appendChild(document.createTextNode(text));
+                    return;
+                }
+
+                const span = document.createElement('span');
+                span.className = 'sql-' + kind;
+                span.textContent = text;
+                fragment.appendChild(span);
+            });
+
+            // A final newline needs a line after it to take up room, as it
+            // does in the textarea.
+            fragment.appendChild(document.createTextNode('\n'));
+            target.replaceChildren(fragment);
+            this.$nextTick(() => this.syncSqlScroll());
+        },
+
+        syncSqlScroll() {
+            const editor = this.$refs.sqlEditor;
+            const target = this.$refs.sqlHighlight;
+
+            if (editor && target) {
+                target.scrollTop = editor.scrollTop;
+                target.scrollLeft = editor.scrollLeft;
+            }
+        },
 
         sqlKeydown(event) {
             if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
@@ -1533,6 +1627,57 @@ document.addEventListener('alpine:init', () => {
             }, 'schema');
         },
 
+        openForeignKey() {
+            const candidates = this.tables.filter((item) => !item.view);
+            const other = candidates.find((item) => item.name !== this.table) || candidates[0];
+
+            this.foreignKey = {
+                name: '',
+                referencedTable: other ? other.name : this.table,
+                onDelete: 'RESTRICT',
+                onUpdate: 'RESTRICT',
+                pairs: [{ column: this.structure.columns[0].name, referenced: '' }],
+                referencedColumns: [],
+            };
+            this.modalTitle = `Add a foreign key to ${this.table}`;
+            this.modal = 'foreign-key';
+            this.loadReferencedColumns();
+        },
+
+        async loadReferencedColumns() {
+            try {
+                const fields = await this.api('fields', { query: { db: this.db, table: this.foreignKey.referencedTable } });
+                const names = fields.map((field) => field.name);
+                // The referenced side is almost always the key: start there.
+                const preferred = (fields.find((field) => field.autoIncrement) || fields[0] || { name: '' }).name;
+
+                this.foreignKey.referencedColumns = names;
+                this.foreignKey.pairs.forEach((pair) => {
+                    if (!names.includes(pair.referenced)) {
+                        pair.referenced = preferred;
+                    }
+                });
+            } catch (error) {
+                this.fail(error);
+            }
+        },
+
+        submitForeignKey() {
+            const key = this.foreignKey;
+
+            this.reviewSchema({
+                operation: 'add-foreign-key',
+                foreignKey: {
+                    name: key.name.trim(),
+                    referencedTable: key.referencedTable,
+                    columns: key.pairs.map((pair) => pair.column),
+                    referencedColumns: key.pairs.map((pair) => pair.referenced),
+                    onDelete: key.onDelete,
+                    onUpdate: key.onUpdate,
+                },
+            }, this.modalTitle, false, 'foreign-key');
+        },
+
         // ---- Routines and events --------------------------------------------
 
         async openObjects() {
@@ -1669,6 +1814,85 @@ document.addEventListener('alpine:init', () => {
             this.resetBrowse();
             this.search = this.appliedSearch = this.dbSearch.result.term;
             await this.openTable(table, { tab: 'browse', keepState: true });
+        },
+
+        // ---- Find and replace ---------------------------------------------------
+
+        async previewReplace() {
+            const { search, replace } = this.replacer;
+
+            await this.run(async () => {
+                const preview = await this.api('replace-preview', { query: { db: this.db, q: search, r: replace } });
+                this.replacer = { ...this.replacer, preview: { ...preview, search, replace }, done: false, changed: {} };
+            }, 'replace-preview');
+        },
+
+        replaceSummary() {
+            const preview = this.replacer.preview;
+            const rows = preview.tables.reduce((sum, hit) => sum + hit.rows, 0);
+
+            if (rows === 0 && preview.skipped.length === 0) {
+                return `"${preview.search}" was not found in any table.`;
+            }
+
+            return `"${preview.search}" is in ${rows.toLocaleString()} row${rows === 1 ? '' : 's'} of ${preview.tables.length} table${preview.tables.length === 1 ? '' : 's'}. `
+                + (this.replacer.done ? 'It has been replaced.' : 'Nothing has changed yet.');
+        },
+
+        replacedTotal() {
+            return Object.values(this.replacer.changed).reduce((sum, count) => sum + count, 0);
+        },
+
+        confirmReplace() {
+            const { search, replace } = this.replacer.preview;
+
+            this.confirmDanger({
+                title: 'Replace everywhere?',
+                message: `Every "${search}" in ${this.db} becomes "${replace}". This cannot be undone: if you have no backup, download one first.`,
+                label: 'Replace',
+                phrase: this.db,
+                // Started, not awaited: it reports its own progress on the page.
+                run: async () => { this.runReplace(); },
+            });
+        },
+
+        /**
+         * Replace in slices until the server says it is done, or the user
+         * stops it. What has been replaced stays replaced either way.
+         */
+        async runReplace() {
+            const { search, replace } = this.replacer.preview;
+            let cursor = null;
+
+            this.replacer = { ...this.replacer, running: true, done: false, stop: false, changed: {} };
+
+            try {
+                while (true) {
+                    const data = await this.api('replace', { query: { db: this.db }, body: { search, replace, tables: [], cursor } });
+
+                    Object.entries(data.changed).forEach(([table, count]) => {
+                        this.replacer.changed[table] = (this.replacer.changed[table] || 0) + count;
+                    });
+
+                    if (data.done) {
+                        this.replacer.done = true;
+                        this.notify(`Replaced in ${this.replacedTotal().toLocaleString()} rows.`);
+                        break;
+                    }
+
+                    if (this.replacer.stop) {
+                        this.notify('Stopped. The rows already changed stay changed.');
+                        break;
+                    }
+
+                    cursor = data.cursor;
+                }
+            } catch (error) {
+                this.fail(error);
+            } finally {
+                this.replacer.running = false;
+                this.loadTables();
+            }
         },
 
         // ---- Processes --------------------------------------------------------

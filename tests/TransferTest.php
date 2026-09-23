@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin\Tests;
+namespace DbSimply\Tests;
 
-use DbAdmin\Client;
-use DbAdmin\Export;
-use DbAdmin\Import;
-use DbAdmin\UserError;
+use DbSimply\Client;
+use DbSimply\Export;
+use DbSimply\Import;
+use DbSimply\UserError;
 
 /**
  * Export and import, and a dump surviving the round trip between them.
@@ -217,6 +217,6 @@ final class TransferTest extends TestCase
     private function freshClient(): Client
     {
         $target = $this->target();
-        return (new \DbAdmin\Connection($this->config()))->open(['user' => $target['user'], 'password' => $target['password']]);
+        return (new \DbSimply\Connection($this->config()))->open(['user' => $target['user'], 'password' => $target['password']]);
     }
 }

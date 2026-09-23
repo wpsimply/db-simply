@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin;
+namespace DbSimply;
 
 /**
  * Builds and runs the statements that change a table's structure: columns,
@@ -45,6 +45,12 @@ final class Schema
     private const array NO_LITERAL_DEFAULT = ['TINYTEXT', 'TEXT', 'MEDIUMTEXT', 'LONGTEXT', 'JSON', 'TINYBLOB', 'BLOB', 'MEDIUMBLOB', 'LONGBLOB'];
 
     public const array ENGINES = ['InnoDB', 'MyISAM', 'Aria'];
+
+    /**
+     * What a foreign key may do when the row it points to changes. SET
+     * DEFAULT is left out: InnoDB does not carry it out.
+     */
+    public const array REFERENTIAL_ACTIONS = ['RESTRICT', 'CASCADE', 'SET NULL', 'NO ACTION'];
 
     public function __construct(private readonly Client $client, private readonly Catalog $catalog) {}
 
@@ -96,6 +102,8 @@ final class Schema
             'drop-column' => $alter.'DROP COLUMN '.Identifier::quote($this->existingColumn($change['name'] ?? null, $columns)['name']),
             'add-index' => $alter.'ADD '.$this->indexDefinition($change['index'] ?? null, $columns),
             'drop-index' => $alter.$this->dropIndex($database, $table['name'], $change['name'] ?? null),
+            'add-foreign-key' => $alter.'ADD '.$this->foreignKeyDefinition($database, $change['foreignKey'] ?? null, $columns),
+            'drop-foreign-key' => $alter.$this->dropForeignKey($database, $table['name'], $change['name'] ?? null),
             'options' => $alter.$this->tableOptions($change),
             default => throw new UserError('Unknown structure change.'),
         };
@@ -403,6 +411,66 @@ final class Schema
             'fulltext' => 'FULLTEXT INDEX'.$quotedName.' ('.$list.')',
             default => throw new UserError('Choose index, unique, primary or fulltext.'),
         };
+    }
+
+    /**
+     * A foreign key onto a table in the same database.
+     *
+     * @param  array<string, array{name: string}>  $columns
+     */
+    private function foreignKeyDefinition(string $database, mixed $key, array $columns): string
+    {
+        if (! is_array($key)) {
+            throw new UserError('Describe the foreign key.');
+        }
+
+        $referenced = $this->catalog->table($database, $key['referencedTable'] ?? null);
+
+        if ($referenced['view']) {
+            throw new UserError('A foreign key cannot point to a view.');
+        }
+
+        $referencedColumns = array_column($this->catalog->columns($database, $referenced['name']), null, 'name');
+        $local = is_array($key['columns'] ?? null) ? array_values($key['columns']) : [];
+        $remote = is_array($key['referencedColumns'] ?? null) ? array_values($key['referencedColumns']) : [];
+
+        if ($local === [] || count($local) !== count($remote)) {
+            throw new UserError('Pair every column with the column it points to.');
+        }
+
+        $actions = [];
+
+        foreach (['onDelete' => 'ON DELETE', 'onUpdate' => 'ON UPDATE'] as $field => $clause) {
+            $action = strtoupper(trim((string) ($key[$field] ?? 'RESTRICT')));
+
+            if (! in_array($action, self::REFERENTIAL_ACTIONS, true)) {
+                throw new UserError('Choose RESTRICT, CASCADE, SET NULL or NO ACTION.');
+            }
+
+            $actions[] = $clause.' '.$action;
+        }
+
+        $name = trim((string) ($key['name'] ?? ''));
+
+        return sprintf(
+            '%sFOREIGN KEY (%s) REFERENCES %s (%s) %s',
+            $name === '' ? '' : 'CONSTRAINT '.Identifier::quote($name).' ',
+            implode(', ', array_map(fn (mixed $column): string => Identifier::quote($this->existingColumn($column, $columns)['name']), $local)),
+            Identifier::quote($referenced['name']),
+            implode(', ', array_map(fn (mixed $column): string => Identifier::quote($this->existingColumn($column, $referencedColumns)['name']), $remote)),
+            implode(' ', $actions),
+        );
+    }
+
+    private function dropForeignKey(string $database, string $table, mixed $name): string
+    {
+        foreach ($this->catalog->foreignKeys($database, $table) as $key) {
+            if ($key['name'] === $name) {
+                return 'DROP FOREIGN KEY '.Identifier::quote($key['name']);
+            }
+        }
+
+        throw new UserError('That foreign key does not exist.', 404);
     }
 
     private function dropIndex(string $database, string $table, mixed $name): string

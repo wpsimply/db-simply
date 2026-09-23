@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin\Tests;
+namespace DbSimply\Tests;
 
 use Closure;
-use DbAdmin\Catalog;
-use DbAdmin\Client;
-use DbAdmin\Config;
-use DbAdmin\Connection;
+use DbSimply\Catalog;
+use DbSimply\Client;
+use DbSimply\Config;
+use DbSimply\Connection;
 use RuntimeException;
 use Throwable;
 
@@ -70,7 +70,7 @@ abstract class TestCase
      */
     protected function target(): array
     {
-        $host = getenv('DB_ADMIN_TEST_HOST') ?: null;
+        $host = getenv('DB_SIMPLY_TEST_HOST') ?: null;
 
         if ($host === null) {
             throw new Skipped('No test database configured.');
@@ -78,10 +78,10 @@ abstract class TestCase
 
         return [
             'host' => $host,
-            'port' => (int) (getenv('DB_ADMIN_TEST_PORT') ?: 3306),
-            'user' => getenv('DB_ADMIN_TEST_USER') ?: 'root',
-            'password' => getenv('DB_ADMIN_TEST_PASSWORD') ?: '',
-            'database' => getenv('DB_ADMIN_TEST_DATABASE') ?: 'dbadmin_test',
+            'port' => (int) (getenv('DB_SIMPLY_TEST_PORT') ?: 3306),
+            'user' => getenv('DB_SIMPLY_TEST_USER') ?: 'root',
+            'password' => getenv('DB_SIMPLY_TEST_PASSWORD') ?: '',
+            'database' => getenv('DB_SIMPLY_TEST_DATABASE') ?: 'dbsimply_test',
         ];
     }
 
@@ -143,7 +143,7 @@ abstract class TestCase
 
     protected static function tempDir(): string
     {
-        $dir = sys_get_temp_dir().'/db-admin-test-'.bin2hex(random_bytes(4));
+        $dir = sys_get_temp_dir().'/db-simply-test-'.bin2hex(random_bytes(4));
         mkdir($dir, 0700, true);
 
         return $dir;

@@ -1,4 +1,4 @@
-/* DB Admin. Plain CSS, no build step. */
+/* DB Simply. Plain CSS, no build step. */
 
 :root {
     color-scheme: light;
@@ -16,6 +16,11 @@
     --success: #1b7f4a;
     --focus: #2f6fed;
     --null: #9aa7a9;
+    --sql-keyword: #0b6b8a;
+    --sql-string: #a0521b;
+    --sql-number: #7a3fb0;
+    --sql-identifier: #0f766e;
+    --sql-variable: #b0306b;
     --radius: 6px;
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
     --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -38,6 +43,11 @@
         --success: #4cc38a;
         --focus: #6f9bff;
         --null: #5f6d6f;
+        --sql-keyword: #6cc4e8;
+        --sql-string: #e8a46c;
+        --sql-number: #c49cf0;
+        --sql-identifier: #4fd1c1;
+        --sql-variable: #f08cb8;
     }
 }
 
@@ -237,7 +247,29 @@ pre.code {
 
 /* ---- SQL ---- */
 
-.sql-editor { display: block; min-height: 180px; height: 28vh; padding: 12px; font: 13px/1.5 var(--mono); tab-size: 4; }
+.sql-editor-wrap { position: relative; }
+.sql-editor, .sql-highlight {
+    margin: 0; padding: 12px; border: 1px solid transparent; border-radius: var(--radius);
+    font: 13px/1.5 var(--mono); tab-size: 4; letter-spacing: normal;
+    white-space: pre-wrap; overflow-wrap: break-word; word-break: normal;
+    /* Both reserve the same room for a scrollbar, so they wrap alike. */
+    overflow-y: scroll; scrollbar-gutter: stable;
+}
+/* The textarea is what is typed into; its text is invisible and the
+   highlighted copy behind it shows through. */
+.sql-editor {
+    position: relative; z-index: 1; display: block; width: 100%; min-height: 180px; height: 28vh;
+    border-color: var(--border); background: transparent; color: transparent; caret-color: var(--text); resize: vertical;
+}
+.sql-editor::placeholder { color: var(--muted); }
+.sql-editor::selection { color: transparent; background: color-mix(in srgb, var(--focus) 30%, transparent); }
+.sql-highlight { position: absolute; inset: 0; overflow: hidden; background: var(--surface); color: var(--text); pointer-events: none; }
+.sql-keyword { color: var(--sql-keyword); }
+.sql-string { color: var(--sql-string); }
+.sql-number { color: var(--sql-number); }
+.sql-comment { color: var(--muted); }
+.sql-identifier { color: var(--sql-identifier); }
+.sql-variable { color: var(--sql-variable); }
 .sql-bar { display: flex; align-items: center; gap: 6px; margin: 8px 0 14px; flex-wrap: wrap; }
 .sql-bar .hint { margin-left: auto; }
 .result { margin-bottom: 14px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
@@ -303,6 +335,18 @@ table.grid .center { text-align: center; }
 td.actions-cell { width: 1%; text-align: right; }
 .process-query { max-width: 360px; font-size: 12px; }
 .search-db .browse-bar input { flex: 1; }
+.mode-tabs { margin-bottom: 12px; }
+.replace-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
+.replace-table { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.replace-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.sample { display: grid; gap: 2px; margin-top: 8px; }
+.sample code { display: block; padding: 3px 6px; border-radius: 4px; white-space: pre-wrap; word-break: break-all; }
+.sample .before { background: var(--danger-soft); }
+.sample .after { background: var(--accent-soft); }
+.replace-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.pill.warn { color: var(--danger); background: var(--danger-soft); }
+.fk-pair { grid-template-columns: 1fr auto 1fr auto; }
+@media (max-width: 800px) { .replace-form { grid-template-columns: 1fr; } }
 .confirm-list { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
 .confirm-list code { display: block; margin-top: 2px; color: var(--muted); white-space: pre-wrap; word-break: break-word; }
 

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin;
+namespace DbSimply;
 
 /**
  * Picks one row out of a table by the values of its row key.

@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-use DbAdmin\Session;
-use DbAdmin\TokenStore;
-use DbAdmin\UserError;
+use DbSimply\Session;
+use DbSimply\TokenStore;
+use DbSimply\UserError;
 
 $config = require dirname(__DIR__).'/bootstrap.php';
 
-db_admin_headers();
+db_simply_headers();
 
 $tokens = new TokenStore((string) $config->get('sso.token_dir'), $config->int('sso.token_ttl'));
 $session = new Session($config);

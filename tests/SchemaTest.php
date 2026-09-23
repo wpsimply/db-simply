@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin\Tests;
+namespace DbSimply\Tests;
 
-use DbAdmin\Objects;
-use DbAdmin\Processes;
-use DbAdmin\Rows;
-use DbAdmin\Schema;
-use DbAdmin\Search;
-use DbAdmin\UserError;
+use DbSimply\Objects;
+use DbSimply\Processes;
+use DbSimply\Rows;
+use DbSimply\Schema;
+use DbSimply\Search;
+use DbSimply\UserError;
 
 /**
  * Changing structure, the programmable objects, search and processes.
@@ -114,6 +114,32 @@ final class SchemaTest extends TestCase
         self::assertThrows(UserError::class, fn () => $schema->apply($db, ['operation' => 'options', 'table' => 'posts', 'engine' => 'BLACKHOLE'], true), 'InnoDB');
     }
 
+    public function testForeignKeysAreAddedAndDropped(): void
+    {
+        $client = $this->client(
+            'CREATE TABLE authors (id INT UNSIGNED PRIMARY KEY) ENGINE=InnoDB',
+            'CREATE TABLE books (id INT PRIMARY KEY, author_id INT UNSIGNED NULL) ENGINE=InnoDB',
+        );
+        $schema = new Schema($client, $this->catalog($client));
+        $db = $this->database();
+        $key = ['name' => 'book_author', 'referencedTable' => 'authors', 'columns' => ['author_id'], 'referencedColumns' => ['id'], 'onDelete' => 'set null', 'onUpdate' => 'CASCADE'];
+
+        self::assertSame(
+            "ALTER TABLE `{$db}`.`books` ADD CONSTRAINT `book_author` FOREIGN KEY (`author_id`) REFERENCES `authors` (`id`) ON DELETE SET NULL ON UPDATE CASCADE",
+            $schema->apply($db, ['operation' => 'add-foreign-key', 'table' => 'books', 'foreignKey' => $key], false)['sql'],
+        );
+
+        $keys = $this->catalog($client)->foreignKeys($db, 'books');
+        self::assertSame(['book_author', 'SET NULL', 'CASCADE'], [$keys[0]['name'], $keys[0]['onDelete'], $keys[0]['onUpdate']]);
+
+        self::assertThrows(UserError::class, fn () => $schema->apply($db, ['operation' => 'add-foreign-key', 'table' => 'books', 'foreignKey' => [...$key, 'onDelete' => 'DROP TABLE']], true), 'RESTRICT');
+        self::assertThrows(UserError::class, fn () => $schema->apply($db, ['operation' => 'add-foreign-key', 'table' => 'books', 'foreignKey' => [...$key, 'referencedColumns' => ['nope']]], true), 'does not exist');
+        self::assertThrows(UserError::class, fn () => $schema->apply($db, ['operation' => 'add-foreign-key', 'table' => 'books', 'foreignKey' => [...$key, 'referencedColumns' => []]], true), 'Pair');
+
+        $schema->apply($db, ['operation' => 'drop-foreign-key', 'table' => 'books', 'name' => 'book_author'], false);
+        self::assertSame([], $this->catalog($client)->foreignKeys($db, 'books'));
+    }
+
     public function testTablesAreCreated(): void
     {
         $client = $this->client();
@@ -133,7 +159,7 @@ final class SchemaTest extends TestCase
         ], false);
 
         self::assertTrue(str_starts_with($result['sql'], "CREATE TABLE `{$db}`.`notes` (\n  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,"));
-        self::assertSame(['id'], \DbAdmin\Catalog::rowKey($this->catalog($client)->columns($db, 'notes'), $this->catalog($client)->indexes($db, 'notes')));
+        self::assertSame(['id'], \DbSimply\Catalog::rowKey($this->catalog($client)->columns($db, 'notes'), $this->catalog($client)->indexes($db, 'notes')));
 
         self::assertThrows(UserError::class, fn () => $schema->apply($db, ['operation' => 'create-table', 'name' => 'x', 'columns' => [['name' => 'a', 'type' => 'INT'], ['name' => 'A', 'type' => 'INT']]], true), 'same name');
     }
@@ -216,10 +242,10 @@ final class SchemaTest extends TestCase
         self::assertThrows(UserError::class, fn () => $processes->kill(1, true), 'finished');
     }
 
-    private function freshClient(): \DbAdmin\Client
+    private function freshClient(): \DbSimply\Client
     {
         $target = $this->target();
 
-        return (new \DbAdmin\Connection($this->config()))->open(['user' => $target['user'], 'password' => $target['password']]);
+        return (new \DbSimply\Connection($this->config()))->open(['user' => $target['user'], 'password' => $target['password']]);
     }
 }

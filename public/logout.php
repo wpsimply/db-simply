@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-use DbAdmin\Session;
+use DbSimply\Session;
 
 $config = require dirname(__DIR__).'/bootstrap.php';
 
-db_admin_headers();
+db_simply_headers();
 
 $session = new Session($config);
 

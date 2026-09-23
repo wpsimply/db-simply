@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-use DbAdmin\Config;
-use DbAdmin\Env;
+use DbSimply\Config;
+use DbSimply\Env;
 
 if (PHP_VERSION_ID < 80300) {
     http_response_code(500);
-    exit('DB Admin requires PHP 8.3 or newer.');
+    exit('DB Simply requires PHP 8.3 or newer.');
 }
 
 foreach (['mysqli' => 'mysqli', 'mbstring' => 'mbstring', 'session' => 'session', 'sodium' => 'sodium'] as $extension => $name) {
     if (! extension_loaded($extension)) {
         http_response_code(500);
-        exit("DB Admin requires the {$name} extension.");
+        exit("DB Simply requires the {$name} extension.");
     }
 }
 
@@ -26,8 +26,8 @@ if (is_file(__DIR__.'/vendor/autoload.php')) {
     require __DIR__.'/vendor/autoload.php';
 } else {
     spl_autoload_register(static function (string $class): void {
-        if (str_starts_with($class, 'DbAdmin\\')) {
-            $file = __DIR__.'/src/'.str_replace('\\', '/', substr($class, strlen('DbAdmin\\'))).'.php';
+        if (str_starts_with($class, 'DbSimply\\')) {
+            $file = __DIR__.'/src/'.str_replace('\\', '/', substr($class, strlen('DbSimply\\'))).'.php';
 
             if (is_file($file)) {
                 require $file;
@@ -42,7 +42,7 @@ if (is_file(__DIR__.'/vendor/autoload.php')) {
  * from this origin. Alpine evaluates its directives with Function(), which is
  * what 'unsafe-eval' is for; no directive is ever built from database data.
  */
-function db_admin_headers(): void
+function db_simply_headers(): void
 {
     header('X-Frame-Options: DENY');
     header('X-Content-Type-Options: nosniff');
@@ -51,7 +51,7 @@ function db_admin_headers(): void
     header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
 }
 
-// .env, config.php and storage/ live here, or in DB_ADMIN_HOME when the
+// .env, config.php and storage/ live here, or in DB_SIMPLY_HOME when the
 // app is installed as a Composer dependency and must survive updates.
 try {
     $home = Env::home(__DIR__);

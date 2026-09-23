@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin;
+namespace DbSimply;
 
 /**
  * The application's configuration: the defaults below, overlaid with whatever
@@ -19,7 +19,7 @@ final class Config
      * Load the configuration for the application in the given directory.
      *
      * Three layers, each overriding the one before: the defaults below, the
-     * DB_ADMIN_* environment (.env, with the real environment winning), and
+     * DB_SIMPLY_* environment (.env, with the real environment winning), and
      * config.php. Use whichever suits the deployment; most need only one.
      */
     public static function load(string $root): self
@@ -94,13 +94,13 @@ final class Config
             ],
             'session' => [
                 'save_path' => $root.'/storage/sessions',
-                'name' => 'DbAdminSession',
+                'name' => 'DbSimplySession',
                 'secure' => true,
                 'idle_timeout' => 1800,
                 'lifetime' => 28800,
             ],
             'panel_url' => null,
-            'title' => 'DB Admin',
+            'title' => 'DB Simply',
             'limits' => [
                 'page_size' => 50,
                 'cell_preview' => 1024,

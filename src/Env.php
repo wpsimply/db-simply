@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin;
+namespace DbSimply;
 
 use RuntimeException;
 
 /**
  * Reads configuration from the environment and an optional .env file.
  *
- * Only DB_ADMIN_* variables are considered. A variable set in the real
+ * Only DB_SIMPLY_* variables are considered. A variable set in the real
  * environment (PHP-FPM's `env[...]`, a container, the shell) wins over the
  * same variable in .env, the way dotenv loaders usually behave. Nothing is
  * written back into the process environment.
@@ -24,37 +24,37 @@ final class Env
      * Environment variable => config path, with the type it is read as.
      */
     public const array MAP = [
-        'DB_ADMIN_TITLE' => ['title', 'string'],
-        'DB_ADMIN_PANEL_URL' => ['panel_url', 'string'],
-        'DB_ADMIN_DB_HOST' => ['db.host', 'string'],
-        'DB_ADMIN_DB_PORT' => ['db.port', 'int'],
-        'DB_ADMIN_DB_SOCKET' => ['db.socket', 'string'],
-        'DB_ADMIN_DB_TIMEOUT' => ['db.timeout', 'int'],
-        'DB_ADMIN_DB_READ_TIMEOUT' => ['db.read_timeout', 'int'],
-        'DB_ADMIN_DB_SSL' => ['db.ssl', 'bool'],
-        'DB_ADMIN_DB_SSL_CA' => ['db.ssl_ca', 'string'],
-        'DB_ADMIN_DB_SSL_VERIFY' => ['db.ssl_verify', 'bool'],
-        'DB_ADMIN_HIDDEN_DATABASES' => ['hidden_databases', 'list'],
-        'DB_ADMIN_TOKEN_DIR' => ['sso.token_dir', 'string'],
-        'DB_ADMIN_TOKEN_TTL' => ['sso.token_ttl', 'int'],
-        'DB_ADMIN_IMPORT_DIR' => ['import.dir', 'string'],
-        'DB_ADMIN_IMPORT_MAX_BYTES' => ['import.max_bytes', 'int'],
-        'DB_ADMIN_IMPORT_BUDGET' => ['import.budget', 'int'],
-        'DB_ADMIN_SESSION_PATH' => ['session.save_path', 'string'],
-        'DB_ADMIN_SESSION_NAME' => ['session.name', 'string'],
-        'DB_ADMIN_SESSION_SECURE' => ['session.secure', 'bool'],
-        'DB_ADMIN_SESSION_IDLE_TIMEOUT' => ['session.idle_timeout', 'int'],
-        'DB_ADMIN_SESSION_LIFETIME' => ['session.lifetime', 'int'],
-        'DB_ADMIN_PAGE_SIZE' => ['limits.page_size', 'int'],
-        'DB_ADMIN_CELL_PREVIEW' => ['limits.cell_preview', 'int'],
-        'DB_ADMIN_VALUE_PREVIEW' => ['limits.value_preview', 'int'],
-        'DB_ADMIN_QUERY_ROWS' => ['limits.query_rows', 'int'],
-        'DB_ADMIN_EXACT_COUNT' => ['limits.exact_count', 'int'],
-        'DB_ADMIN_DECODE_SERIALIZED' => ['decode_serialized', 'bool'],
+        'DB_SIMPLY_TITLE' => ['title', 'string'],
+        'DB_SIMPLY_PANEL_URL' => ['panel_url', 'string'],
+        'DB_SIMPLY_DB_HOST' => ['db.host', 'string'],
+        'DB_SIMPLY_DB_PORT' => ['db.port', 'int'],
+        'DB_SIMPLY_DB_SOCKET' => ['db.socket', 'string'],
+        'DB_SIMPLY_DB_TIMEOUT' => ['db.timeout', 'int'],
+        'DB_SIMPLY_DB_READ_TIMEOUT' => ['db.read_timeout', 'int'],
+        'DB_SIMPLY_DB_SSL' => ['db.ssl', 'bool'],
+        'DB_SIMPLY_DB_SSL_CA' => ['db.ssl_ca', 'string'],
+        'DB_SIMPLY_DB_SSL_VERIFY' => ['db.ssl_verify', 'bool'],
+        'DB_SIMPLY_HIDDEN_DATABASES' => ['hidden_databases', 'list'],
+        'DB_SIMPLY_TOKEN_DIR' => ['sso.token_dir', 'string'],
+        'DB_SIMPLY_TOKEN_TTL' => ['sso.token_ttl', 'int'],
+        'DB_SIMPLY_IMPORT_DIR' => ['import.dir', 'string'],
+        'DB_SIMPLY_IMPORT_MAX_BYTES' => ['import.max_bytes', 'int'],
+        'DB_SIMPLY_IMPORT_BUDGET' => ['import.budget', 'int'],
+        'DB_SIMPLY_SESSION_PATH' => ['session.save_path', 'string'],
+        'DB_SIMPLY_SESSION_NAME' => ['session.name', 'string'],
+        'DB_SIMPLY_SESSION_SECURE' => ['session.secure', 'bool'],
+        'DB_SIMPLY_SESSION_IDLE_TIMEOUT' => ['session.idle_timeout', 'int'],
+        'DB_SIMPLY_SESSION_LIFETIME' => ['session.lifetime', 'int'],
+        'DB_SIMPLY_PAGE_SIZE' => ['limits.page_size', 'int'],
+        'DB_SIMPLY_CELL_PREVIEW' => ['limits.cell_preview', 'int'],
+        'DB_SIMPLY_VALUE_PREVIEW' => ['limits.value_preview', 'int'],
+        'DB_SIMPLY_QUERY_ROWS' => ['limits.query_rows', 'int'],
+        'DB_SIMPLY_EXACT_COUNT' => ['limits.exact_count', 'int'],
+        'DB_SIMPLY_DECODE_SERIALIZED' => ['decode_serialized', 'bool'],
     ];
 
     /**
-     * The directory holding .env, config.php and storage/: DB_ADMIN_HOME
+     * The directory holding .env, config.php and storage/: DB_SIMPLY_HOME
      * when the real environment sets it, the application directory otherwise.
      * It locates .env, so .env itself cannot set it.
      *
@@ -65,7 +65,7 @@ final class Env
      */
     public static function home(string $default, ?array $environment = null): string
     {
-        $dir = trim(($environment ?? self::environment())['DB_ADMIN_HOME'] ?? '');
+        $dir = trim(($environment ?? self::environment())['DB_SIMPLY_HOME'] ?? '');
 
         if ($dir === '') {
             return $default;
@@ -74,7 +74,7 @@ final class Env
         $real = realpath($dir);
 
         if ($real === false || ! is_dir($real)) {
-            throw new RuntimeException("DB_ADMIN_HOME is not a directory: {$dir}");
+            throw new RuntimeException("DB_SIMPLY_HOME is not a directory: {$dir}");
         }
 
         return $real;
@@ -190,7 +190,7 @@ final class Env
         $values = [];
 
         foreach ([...$_SERVER, ...$_ENV, ...getenv()] as $name => $value) {
-            if (is_string($name) && str_starts_with($name, 'DB_ADMIN_') && is_string($value)) {
+            if (is_string($name) && str_starts_with($name, 'DB_SIMPLY_') && is_string($value)) {
                 $values[$name] = $value;
             }
         }

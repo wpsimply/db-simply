@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-use DbAdmin\Catalog;
-use DbAdmin\Connection;
-use DbAdmin\Import;
-use DbAdmin\Session;
-use DbAdmin\UserError;
+use DbSimply\Catalog;
+use DbSimply\Connection;
+use DbSimply\Import;
+use DbSimply\Session;
+use DbSimply\UserError;
 
 $config = require dirname(__DIR__).'/bootstrap.php';
 
-db_admin_headers();
+db_simply_headers();
 header('Content-Type: application/json; charset=utf-8');
 
 /*
@@ -40,7 +40,7 @@ $action = (string) ($_GET['action'] ?? '');
 
 try {
     if ($grant === null) {
-        throw new UserError('Your session has ended. Open DB Admin again from your control panel.', 401);
+        throw new UserError('Your session has ended. Open DB Simply again from your control panel.', 401);
     }
 
     if ($grant['readonly']) {
@@ -106,6 +106,6 @@ try {
 } catch (UserError $e) {
     $respond($e->getMessage(), $e->status);
 } catch (Throwable $e) {
-    error_log('db-admin: import failed: '.$e);
+    error_log('db-simply: import failed: '.$e);
     $respond('Something went wrong. The error has been logged.', 500);
 }

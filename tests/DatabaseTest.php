@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin\Tests;
+namespace DbSimply\Tests;
 
-use DbAdmin\Console;
-use DbAdmin\Rows;
-use DbAdmin\UserError;
+use DbSimply\Console;
+use DbSimply\Rows;
+use DbSimply\UserError;
 
 /**
  * The catalog, the row browser and the console against a real server.
@@ -201,7 +201,7 @@ final class DatabaseTest extends TestCase
         self::assertSame('0', $client->value('SELECT COUNT(*) FROM t'));
     }
 
-    private function rows(\DbAdmin\Client $client): Rows
+    private function rows(\DbSimply\Client $client): Rows
     {
         return new Rows($client, $this->catalog($client), 1024, 1048576, 100000);
     }

@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin;
+namespace DbSimply;
 
 use Closure;
-use DbAdmin\Sql\Analyzer;
-use DbAdmin\Sql\Splitter;
+use DbSimply\Sql\Analyzer;
+use DbSimply\Sql\Splitter;
 use mysqli_result;
 use mysqli_sql_exception;
 
@@ -66,7 +66,7 @@ final class Export
         $this->client->query('START TRANSACTION WITH CONSISTENT SNAPSHOT');
 
         $this->write(implode("\n", [
-            '-- DB Admin SQL dump',
+            '-- DB Simply SQL dump',
             '-- Server: '.$this->client->version(),
             '-- Database: '.$database,
             '-- Generated: '.gmdate('Y-m-d H:i:s').' UTC',

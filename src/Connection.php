@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin;
+namespace DbSimply;
 
 use mysqli;
 use mysqli_sql_exception;
@@ -69,10 +69,10 @@ final class Connection
             // Access denied: the panel's credentials no longer work, which a
             // fresh sign-on from the panel repairs.
             if ($e->getCode() === 1045) {
-                throw new UserError('The database refused these credentials. Open DB Admin again from your control panel.', 401);
+                throw new UserError('The database refused these credentials. Open DB Simply again from your control panel.', 401);
             }
 
-            error_log('db-admin: connection failed: '.$e->getMessage());
+            error_log('db-simply: connection failed: '.$e->getMessage());
 
             throw new UserError('Could not connect to the database server.', 503);
         }

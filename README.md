@@ -1,4 +1,4 @@
-# DB Admin
+# DB Simply
 
 A small, self-hosted web UI for MariaDB and MySQL, built to sit next to a hosting control panel the way phpMyAdmin does: the panel signs the user in with a one-time link, and the session connects to the one server the app is configured for, as the one database user the link was issued for.
 
@@ -6,12 +6,13 @@ A small, self-hosted web UI for MariaDB and MySQL, built to sit next to a hostin
 - Browse any table page by page: sort by any column, filter with conditions, search every text column; long and binary values are shown safely, and opened in full on click
 - JSON and PHP-serialized values (WordPress options and meta) are decoded for reading; classes are never instantiated
 - Edit, insert, copy and delete rows. Rows are always picked out by their primary or unique key, and every change touches one row per key at most
-- Structure: columns, indexes, foreign keys, triggers and the `CREATE` statement, and changing it: add, change and drop columns and indexes, table options, new tables. Every change shows the statement it will run first
+- Structure: columns, indexes, foreign keys, triggers and the `CREATE` statement, and changing it: add, change and drop columns, indexes and foreign keys, table options, new tables. Every change shows the statement it will run first
 - Stored procedures and functions, triggers, events and views: list them, show their definitions, open them in the SQL editor to change them, drop them
 - Search a whole database for a value, table by table, and open the matching rows
+- Find and replace across a whole database, safe for serialized PHP: WordPress options, meta and widgets keep working after a domain change. Preview with examples first, then it runs in resumable slices
 - See your own queries running on the server, and stop them
 - Table operations: rename, empty, truncate, drop, optimize, analyze, check and repair, one table or several at once
-- SQL console: runs several statements in order, stops at the first error, cuts long results off, and asks before anything that throws data away (`DROP`, `TRUNCATE`, `DELETE` or `UPDATE` without `WHERE`)
+- SQL console with syntax highlighting: runs several statements in order, stops at the first error, cuts long results off, and asks before anything that throws data away (`DROP`, `TRUNCATE`, `DELETE` or `UPDATE` without `WHERE`)
 - Export a database or some of its tables as an SQL dump (optionally gzipped), a table's rows or a query's result as CSV. A whole database takes its procedures, functions and events along. Exports stream, so their size is not limited by memory
 - Import `.sql` and `.sql.gz` files of any size: uploaded in chunks, run in slices of a few seconds each, and resumable past a failed statement
 - Read-only sessions, for support access
@@ -26,15 +27,15 @@ A small, self-hosted web UI for MariaDB and MySQL, built to sit next to a hostin
 
 ## Install
 
-Download the zip from the [latest release](https://github.com/wpsimply/db-admin/releases/latest). It holds only the files a server needs, inside a single `db-admin/` directory:
+Download the zip from the [latest release](https://github.com/wpsimply/db-simply/releases/latest). It holds only the files a server needs, inside a single `db-simply/` directory:
 
 ```sh
-version=0.3.0
-curl -fsSLO "https://github.com/wpsimply/db-admin/releases/download/v${version}/db-admin-${version}.zip"
-curl -fsSLO "https://github.com/wpsimply/db-admin/releases/download/v${version}/db-admin-${version}.zip.sha256"
-sha256sum -c "db-admin-${version}.zip.sha256"
-unzip -q "db-admin-${version}.zip" -d /var/www
-cd /var/www/db-admin && cp .env.example .env
+version=0.4.0
+curl -fsSLO "https://github.com/wpsimply/db-simply/releases/download/v${version}/db-simply-${version}.zip"
+curl -fsSLO "https://github.com/wpsimply/db-simply/releases/download/v${version}/db-simply-${version}.zip.sha256"
+sha256sum -c "db-simply-${version}.zip.sha256"
+unzip -q "db-simply-${version}.zip" -d /var/www
+cd /var/www/db-simply && cp .env.example .env
 ```
 
 Cloning the repository works too, but brings the tests and CI files along.
@@ -42,12 +43,12 @@ Cloning the repository works too, but brings the tests and CI files along.
 ### With Composer
 
 ```sh
-composer create-project wpsimply/db-admin /var/www/db-admin
+composer create-project wpsimply/db-simply /var/www/db-simply
 ```
 
 This installs the runtime files and leaves out the tests, examples and CI files, like the release zip. It also copies `.env.example` to `.env` and sets the storage directories to `0700`.
 
-To pin DB Admin in another project instead, `composer require wpsimply/db-admin`, and set `DB_ADMIN_HOME` in the real environment (the PHP-FPM pool's `env[...]`) to a directory outside `vendor/` that holds `.env`, `config.php` and `storage/`. `DB_ADMIN_HOME` can't be set in `.env`, because it decides where `.env` is read from.
+To pin DB Simply in another project instead, `composer require wpsimply/db-simply`, and set `DB_SIMPLY_HOME` in the real environment (the PHP-FPM pool's `env[...]`) to a directory outside `vendor/` that holds `.env`, `config.php` and `storage/`. `DB_SIMPLY_HOME` can't be set in `.env`, because it decides where `.env` is read from.
 
 ### Permissions
 
@@ -65,23 +66,23 @@ Point the web server at `public/`, and let it run `index.php`, `sso.php`, `api.p
 Configuration comes from three layers, each overriding the one before:
 
 1. the defaults in `src/Config.php`
-2. `DB_ADMIN_*` environment variables, read from `.env` and the real environment (the real environment wins)
+2. `DB_SIMPLY_*` environment variables, read from `.env` and the real environment (the real environment wins)
 3. `config.php`, if present (copy `config.example.php`)
 
 The settings that matter:
 
 | Variable | Purpose |
 | --- | --- |
-| `DB_ADMIN_DB_HOST`, `DB_ADMIN_DB_PORT` | The server every session connects to. |
-| `DB_ADMIN_DB_SOCKET` | A Unix socket to use instead of host and port. |
-| `DB_ADMIN_DB_SSL`, `DB_ADMIN_DB_SSL_CA`, `DB_ADMIN_DB_SSL_VERIFY` | TLS to the server. |
-| `DB_ADMIN_HIDDEN_DATABASES` | Databases never listed or opened, comma separated. Defaults to the system schemas. |
-| `DB_ADMIN_TOKEN_DIR` | Where the control panel drops sign-on tokens. Defaults to `storage/sso-tokens`. |
-| `DB_ADMIN_TOKEN_TTL` | Seconds a token stays valid. Default 60. |
-| `DB_ADMIN_PANEL_URL` | Linked from the signed-out page. |
-| `DB_ADMIN_SESSION_SECURE` | Keep `true` in production; `false` only for local HTTP. |
-| `DB_ADMIN_IMPORT_MAX_BYTES` | The largest file an import accepts. Default 2 GB. A gzipped file may decompress to 20 times this. |
-| `DB_ADMIN_IMPORT_BUDGET` | Seconds each import request runs statements before it reports progress. Default 20; keep it well under the web server's timeout. |
+| `DB_SIMPLY_DB_HOST`, `DB_SIMPLY_DB_PORT` | The server every session connects to. |
+| `DB_SIMPLY_DB_SOCKET` | A Unix socket to use instead of host and port. |
+| `DB_SIMPLY_DB_SSL`, `DB_SIMPLY_DB_SSL_CA`, `DB_SIMPLY_DB_SSL_VERIFY` | TLS to the server. |
+| `DB_SIMPLY_HIDDEN_DATABASES` | Databases never listed or opened, comma separated. Defaults to the system schemas. |
+| `DB_SIMPLY_TOKEN_DIR` | Where the control panel drops sign-on tokens. Defaults to `storage/sso-tokens`. |
+| `DB_SIMPLY_TOKEN_TTL` | Seconds a token stays valid. Default 60. |
+| `DB_SIMPLY_PANEL_URL` | Linked from the signed-out page. |
+| `DB_SIMPLY_SESSION_SECURE` | Keep `true` in production; `false` only for local HTTP. |
+| `DB_SIMPLY_IMPORT_MAX_BYTES` | The largest file an import accepts. Default 2 GB. A gzipped file may decompress to 20 times this. |
+| `DB_SIMPLY_IMPORT_BUDGET` | Seconds each import request runs statements before it reports progress. Default 20; keep it well under the web server's timeout. |
 
 See [`.env.example`](.env.example) for all of them.
 
@@ -112,7 +113,7 @@ There is no login form. Your control panel authorises the user, writes a token f
 
 3. Redirect the user to `https://db.example.com/sso.php?token=<token>`.
 
-The token is spent on first use and expires after `DB_ADMIN_TOKEN_TTL` seconds either way. The token never names a server: where the connection goes is configuration only.
+The token is spent on first use and expires after `DB_SIMPLY_TOKEN_TTL` seconds either way. The token never names a server: where the connection goes is configuration only.
 
 [`examples/issue-token.php`](examples/issue-token.php) shows the panel side.
 
@@ -124,26 +125,27 @@ The token is spent on first use and expires after `DB_ADMIN_TOKEN_TTL` seconds e
 - Read-only sessions refuse any statement that is not a read, and run on the server in read-only transactions as well. They cannot edit rows, change structure, drop objects, run table operations or import.
 - Structure changes are built from checked parts, never from text the browser sends: types come from a fixed list, lengths must be numbers, names are quoted, values are quoted literals, and the only default expression is `CURRENT_TIMESTAMP`. Anything else is written in the SQL editor, where it is plain to see.
 - The process list shows only the signed-in user's own connections, and only those can be stopped.
+- Find and replace never instantiates anything it finds: serialized values are rewritten by reading the format itself, not with `unserialize()`. Rows are changed only through their row key, a table without one is left alone, and the key columns themselves are never rewritten.
 - Imports are kept in `storage/imports` while they run, readable by the pool user only, and belong to the session that started them. Finished and cancelled imports are deleted at once, abandoned ones after a day.
 - Dumps leave `DEFINER` clauses out, so views and triggers import as the importing user. On MySQL with binary logging, creating a trigger needs `SUPER` unless the server sets `log_bin_trust_function_creators = 1`.
 - Tokens are single-use and short-lived. Pages are sent with `Referrer-Policy: no-referrer`, so the token URL doesn't leak to other sites.
-- Every change needs the session's CSRF token. Sessions end after `DB_ADMIN_SESSION_IDLE_TIMEOUT` seconds of inactivity, or after `DB_ADMIN_SESSION_LIFETIME` seconds regardless.
+- Every change needs the session's CSRF token. Sessions end after `DB_SIMPLY_SESSION_IDLE_TIMEOUT` seconds of inactivity, or after `DB_SIMPLY_SESSION_LIFETIME` seconds regardless.
 - The Content-Security-Policy allows scripts only from this origin. Alpine.js needs `'unsafe-eval'` to evaluate its directives. No directive is ever built from database data, and values are only ever rendered as text.
 
 ## Development
 
 ```sh
-php -S 127.0.0.1:8080 -t public     # with DB_ADMIN_SESSION_SECURE=false in .env
+php -S 127.0.0.1:8080 -t public     # with DB_SIMPLY_SESSION_SECURE=false in .env
 php tests/run.php                   # unit tests only; CI also runs them against MariaDB 10.6–11.4 and MySQL 8
 ```
 
 The database tests need a server. They drop every table in the test database, so never point them at one holding data you care about:
 
 ```sh
-docker run -d --rm --name db-admin-test -p 127.0.0.1:33306:3306 \
-    -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=dbadmin_test -e MARIADB_USER=tester -e MARIADB_PASSWORD=secret mariadb:11.4
+docker run -d --rm --name db-simply-test -p 127.0.0.1:33306:3306 \
+    -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=dbsimply_test -e MARIADB_USER=tester -e MARIADB_PASSWORD=secret mariadb:11.4
 
-DB_ADMIN_TEST_HOST=127.0.0.1 DB_ADMIN_TEST_PORT=33306 DB_ADMIN_TEST_USER=tester DB_ADMIN_TEST_PASSWORD=secret php tests/run.php
+DB_SIMPLY_TEST_HOST=127.0.0.1 DB_SIMPLY_TEST_PORT=33306 DB_SIMPLY_TEST_USER=tester DB_SIMPLY_TEST_PASSWORD=secret php tests/run.php
 ```
 
 To get a session locally, drop a token into `storage/sso-tokens/` and open `/sso.php?token=…`:
@@ -160,13 +162,11 @@ Set the new version in `VERSION`, commit, then push a tag:
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
-The release workflow runs the test suite, then builds `db-admin-<version>.zip` with `build/release.sh` and attaches it, with its SHA-256 checksum, to a GitHub release. Tags with a suffix, such as `v0.2.0-rc.1`, are published as prereleases.
+The release workflow runs the test suite, then builds `db-simply-<version>.zip` with `build/release.sh` and attaches it, with its SHA-256 checksum, to a GitHub release. Tags with a suffix, such as `v0.2.0-rc.1`, are published as prereleases.
 
 ## Roadmap
 
-- Foreign keys: add and drop them from the Structure tab
-- Search and replace across a database, safe for PHP-serialized values
-- Syntax highlighting in the SQL editor
+- Integration with the WP Simply panel, replacing phpMyAdmin
 
 ## License
 

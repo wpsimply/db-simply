@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-use DbAdmin\Session;
+use DbSimply\Session;
 
 $config = require dirname(__DIR__).'/bootstrap.php';
 
-db_admin_headers();
+db_simply_headers();
 header('Content-Type: text/html; charset=utf-8');
 
 $session = new Session($config);
@@ -43,7 +43,7 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
         </div>
     </main>
 <?php } else { ?>
-<div class="app" x-data="dbAdmin" x-cloak x-effect="syncUrl()" @keydown.window="shortcut($event)">
+<div class="app" x-data="dbSimply" x-cloak x-effect="syncUrl()" @keydown.window="shortcut($event)">
     <header class="topbar">
         <div class="brand">
             <img src="<?= $e($asset('assets/icon.svg')) ?>" alt="" width="22" height="22">
@@ -190,7 +190,7 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
 
             <div class="placeholder" x-show="!db && sessionReady">
                 <p>There is no database to show.</p>
-                <p class="muted small">Create one from your control panel, then open DB Admin again.</p>
+                <p class="muted small">Create one from your control panel, then open DB Simply again.</p>
             </div>
 
             <!-- Overview -->
@@ -377,6 +377,13 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
 
             <!-- Search -->
             <div x-show="db && !table && tab === 'search'" class="search-db">
+                <div class="tabs mode-tabs" role="tablist" x-show="canWrite()">
+                    <button type="button" role="tab" :aria-selected="searchMode === 'find'" @click="searchMode = 'find'">Find</button>
+                    <button type="button" role="tab" :aria-selected="searchMode === 'replace'" @click="searchMode = 'replace'">Find and replace</button>
+                </div>
+
+                <template x-if="searchMode === 'find'">
+                    <div>
                 <form class="browse-bar" @submit.prevent="searchDatabase()">
                     <input type="search" x-ref="databaseSearch" x-model="dbSearch.term" placeholder="Find a value in every table, e.g. an old domain" aria-label="Search the database" autocomplete="off" spellcheck="false">
                     <button type="submit" class="button small primary" :disabled="busy || !dbSearch.term.trim()" :class="{ 'is-loading': action === 'search' }">Search</button>
@@ -399,6 +406,51 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                             </table>
                         </div>
                         <p class="notice small" x-show="dbSearch.result.skipped.length" x-text="'Time ran out before these tables were searched: ' + dbSearch.result.skipped.join(', ') + '. Search them from their own Browse tab.'"></p>
+                    </div>
+                </template>
+                    </div>
+                </template>
+
+                <template x-if="searchMode === 'replace'">
+                    <div class="replace">
+                        <form class="replace-form" @submit.prevent="previewReplace()">
+                            <label class="stack">Find <input type="text" x-model="replacer.search" placeholder="https://old.example.com" autocomplete="off" spellcheck="false" :disabled="replacer.running"></label>
+                            <label class="stack">Replace with <input type="text" x-model="replacer.replace" placeholder="https://www.new-example.com" autocomplete="off" spellcheck="false" :disabled="replacer.running"></label>
+                            <button type="submit" class="button primary" :disabled="busy || !replacer.search" :class="{ 'is-loading': action === 'replace-preview' }">Preview</button>
+                        </form>
+                        <p class="muted small">Matches exactly, capitals included, in every text column. Inside serialized PHP values (WordPress options, meta and widgets) the text is replaced without breaking them.</p>
+
+                        <template x-if="replacer.preview">
+                            <div>
+                                <p class="small" x-text="replaceSummary()"></p>
+                                <template x-for="hit in replacer.preview.tables" :key="hit.table">
+                                    <div class="replace-table">
+                                        <div class="replace-head">
+                                            <strong class="mono" x-text="hit.table"></strong>
+                                            <span class="muted small" x-text="hit.rows.toLocaleString() + ' row' + (hit.rows === 1 ? '' : 's')"></span>
+                                            <span class="pill warn" x-show="!hit.editable">No row key: left alone</span>
+                                            <span class="muted small" x-show="replacer.changed[hit.table] !== undefined" x-text="'· ' + (replacer.changed[hit.table] || 0).toLocaleString() + ' changed'"></span>
+                                        </div>
+                                        <template x-for="(sample, i) in hit.samples" :key="i">
+                                            <div class="sample">
+                                                <span class="muted small mono" x-text="sample.column + (sample.serialized ? ' · serialized' : '')"></span>
+                                                <code class="before" x-text="sample.before"></code>
+                                                <code class="after" x-text="sample.after"></code>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                                <p class="notice small" x-show="replacer.preview.skipped.length" x-text="'Time ran out before these tables were checked: ' + replacer.preview.skipped.join(', ') + '. They are still included when you replace.'"></p>
+                                <div class="replace-actions" x-show="replacer.preview.tables.length || replacer.preview.skipped.length">
+                                    <button type="button" class="button" @click="openExport([])" :disabled="replacer.running">Download a backup first…</button>
+                                    <span class="spacer"></span>
+                                    <span class="muted small" x-show="replacer.running" x-text="'Replacing… ' + replacedTotal().toLocaleString() + ' rows changed so far'"></span>
+                                    <span class="muted small" x-show="replacer.done" x-text="'Done: ' + replacedTotal().toLocaleString() + ' rows changed.'"></span>
+                                    <button type="button" class="button danger" x-show="replacer.running" @click="replacer.stop = true">Stop</button>
+                                    <button type="button" class="button danger-solid" x-show="!replacer.running && !replacer.done" @click="confirmReplace()" :disabled="busy">Replace everywhere</button>
+                                </div>
+                            </div>
+                        </template>
                     </div>
                 </template>
             </div>
@@ -466,12 +518,18 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                             </table>
                         </div>
 
-                        <template x-if="structure.foreignKeys.length">
+                        <template x-if="structure.foreignKeys.length || structureEditable()">
                             <div>
-                                <h3>Foreign keys</h3>
-                                <div class="table-wrap">
+                                <h3 class="with-action">
+                                    <span>Foreign keys</span>
+                                    <span class="actions" x-show="structureEditable()">
+                                        <button type="button" class="button small" @click="openForeignKey()" :disabled="busy">Add foreign key</button>
+                                    </span>
+                                </h3>
+                                <p class="muted small" x-show="structure.foreignKeys.length === 0">No foreign keys.</p>
+                                <div class="table-wrap" x-show="structure.foreignKeys.length">
                                     <table class="grid">
-                                        <thead><tr><th>Name</th><th>Columns</th><th>References</th><th>On update</th><th>On delete</th></tr></thead>
+                                        <thead><tr><th>Name</th><th>Columns</th><th>References</th><th>On update</th><th>On delete</th><th x-show="structureEditable()"><span class="sr-only">Actions</span></th></tr></thead>
                                         <tbody>
                                             <template x-for="key in structure.foreignKeys" :key="key.name">
                                                 <tr>
@@ -480,6 +538,9 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                                                     <td class="mono" x-text="(key.referencedDatabase !== db ? key.referencedDatabase + '.' : '') + key.referencedTable + ' (' + key.referencedColumns.join(', ') + ')'"></td>
                                                     <td x-text="key.onUpdate"></td>
                                                     <td x-text="key.onDelete"></td>
+                                                    <td class="nowrap" x-show="structureEditable()">
+                                                        <button type="button" class="link danger" @click="reviewSchema({ operation: 'drop-foreign-key', name: key.name }, 'Drop foreign key ' + key.name, true)" :disabled="busy">Drop</button>
+                                                    </td>
                                                 </tr>
                                             </template>
                                         </tbody>
@@ -519,8 +580,11 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
 
             <!-- SQL -->
             <div x-show="db && tab === 'sql'" class="sql">
-                <textarea class="sql-editor" x-ref="sqlEditor" x-model="sql" spellcheck="false" autocomplete="off" aria-label="SQL"
-                          placeholder="SELECT * FROM …" @keydown="sqlKeydown($event)"></textarea>
+                <div class="sql-editor-wrap">
+                    <pre class="sql-highlight" x-ref="sqlHighlight" aria-hidden="true"></pre>
+                    <textarea class="sql-editor" x-ref="sqlEditor" x-model="sql" spellcheck="false" autocomplete="off" aria-label="SQL"
+                              placeholder="SELECT * FROM …" @keydown="sqlKeydown($event)" @scroll="syncSqlScroll()" x-effect="paintSql(sql)"></textarea>
+                </div>
                 <div class="sql-bar">
                     <button type="button" class="button primary" @click="runSql(false)" :disabled="busy || !sql.trim()" :class="{ 'is-loading': action === 'sql' }">Run</button>
                     <button type="button" class="button" @click="explainSql()" :disabled="busy || !sql.trim()">Explain</button>
@@ -860,6 +924,45 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                     <button type="button" class="button primary" @click="closeModal()">Close</button>
                 </footer>
             </div>
+
+            <!-- Foreign key -->
+            <form x-show="modal === 'foreign-key'" @submit.prevent="submitForeignKey()" class="design-form">
+                <div class="design-grid">
+                    <label class="stack">Points to table
+                        <select x-model="foreignKey.referencedTable" @change="loadReferencedColumns()">
+                            <template x-for="item in tables.filter((t) => !t.view)" :key="item.name"><option :value="item.name" x-text="item.name" :selected="foreignKey.referencedTable === item.name"></option></template>
+                        </select>
+                    </label>
+                    <label class="stack">Name <input type="text" x-model="foreignKey.name" spellcheck="false" maxlength="64" placeholder="Chosen by the server"></label>
+                    <label class="stack">When the row it points to is deleted
+                        <select x-model="foreignKey.onDelete"><template x-for="action in referentialActions" :key="action"><option :value="action" x-text="action" :selected="foreignKey.onDelete === action"></option></template></select>
+                    </label>
+                    <label class="stack">When its key changes
+                        <select x-model="foreignKey.onUpdate"><template x-for="action in referentialActions" :key="action"><option :value="action" x-text="action" :selected="foreignKey.onUpdate === action"></option></template></select>
+                    </label>
+                </div>
+                <fieldset>
+                    <legend>Columns</legend>
+                    <template x-for="(pair, i) in foreignKey.pairs" :key="i">
+                        <div class="index-part fk-pair">
+                            <select x-model="pair.column" aria-label="Column in this table">
+                                <template x-for="name in (structure ? structure.columns.map((c) => c.name) : [])" :key="name"><option :value="name" x-text="name" :selected="pair.column === name"></option></template>
+                            </select>
+                            <span class="muted">→</span>
+                            <select x-model="pair.referenced" aria-label="Column it points to">
+                                <template x-for="name in foreignKey.referencedColumns" :key="name"><option :value="name" x-text="name" :selected="pair.referenced === name"></option></template>
+                            </select>
+                            <button type="button" class="link danger" @click="foreignKey.pairs.splice(i, 1)" x-show="foreignKey.pairs.length > 1" aria-label="Remove pair">✕</button>
+                        </div>
+                    </template>
+                    <button type="button" class="link add-part" @click="foreignKey.pairs.push({ column: structure.columns[0].name, referenced: foreignKey.referencedColumns[0] || '' })">+ Add column pair</button>
+                </fieldset>
+                <p class="muted small">Both columns need the same type, and the column pointed to needs an index. InnoDB tables only.</p>
+                <footer>
+                    <button type="button" class="button" @click="closeModal()">Cancel</button>
+                    <button type="submit" class="button primary" :disabled="busy || foreignKey.referencedColumns.length === 0" :class="{ 'is-loading': action === 'preview' }">Review SQL</button>
+                </footer>
+            </form>
 
             <!-- Danger -->
             <div x-show="modal === 'danger'">

@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin\Tests;
+namespace DbSimply\Tests;
 
-use DbAdmin\Catalog;
-use DbAdmin\Codec;
-use DbAdmin\Config;
-use DbAdmin\Env;
-use DbAdmin\Formatter;
-use DbAdmin\Identifier;
-use DbAdmin\Session;
-use DbAdmin\TokenStore;
-use DbAdmin\UserError;
+use DbSimply\Catalog;
+use DbSimply\Codec;
+use DbSimply\Config;
+use DbSimply\Env;
+use DbSimply\Formatter;
+use DbSimply\Identifier;
+use DbSimply\Session;
+use DbSimply\TokenStore;
+use DbSimply\UserError;
 use RuntimeException;
 
 /**
@@ -55,9 +55,9 @@ final class UnitTest extends TestCase
     public function testEnvironmentOverridesDotEnvAndListsAreSplit(): void
     {
         $dir = self::tempDir();
-        file_put_contents($dir.'/.env', "DB_ADMIN_DB_PORT=3307\nDB_ADMIN_DB_HOST=file-host\nDB_ADMIN_TOKEN_DIR=\nDB_ADMIN_SESSION_SECURE=false\nDB_ADMIN_HIDDEN_DATABASES=mysql, sys\n");
+        file_put_contents($dir.'/.env', "DB_SIMPLY_DB_PORT=3307\nDB_SIMPLY_DB_HOST=file-host\nDB_SIMPLY_TOKEN_DIR=\nDB_SIMPLY_SESSION_SECURE=false\nDB_SIMPLY_HIDDEN_DATABASES=mysql, sys\n");
 
-        $config = Config::fromArray($dir, Env::overrides($dir.'/.env', ['DB_ADMIN_DB_HOST' => 'env-host']));
+        $config = Config::fromArray($dir, Env::overrides($dir.'/.env', ['DB_SIMPLY_DB_HOST' => 'env-host']));
 
         self::assertSame('env-host', $config->get('db.host'));
         self::assertSame(3307, $config->get('db.port'));
@@ -71,8 +71,8 @@ final class UnitTest extends TestCase
         $dir = self::tempDir();
 
         self::assertSame('/app', Env::home('/app', []));
-        self::assertSame(realpath($dir), Env::home('/app', ['DB_ADMIN_HOME' => $dir.'/']));
-        self::assertThrows(RuntimeException::class, fn () => Env::home('/app', ['DB_ADMIN_HOME' => $dir.'/missing']), 'not a directory');
+        self::assertSame(realpath($dir), Env::home('/app', ['DB_SIMPLY_HOME' => $dir.'/']));
+        self::assertThrows(RuntimeException::class, fn () => Env::home('/app', ['DB_SIMPLY_HOME' => $dir.'/missing']), 'not a directory');
     }
 
     public function testTokenIsSpentOnFirstUse(): void
@@ -124,7 +124,7 @@ final class UnitTest extends TestCase
         self::assertSame('hunter2', $session->grant()['password'] ?? null);
 
         // Without the key cookie, the session is worthless.
-        unset($_COOKIE['DbAdminSessionKey']);
+        unset($_COOKIE['DbSimplySessionKey']);
         self::assertSame(null, $session->grant());
 
         session_write_close();

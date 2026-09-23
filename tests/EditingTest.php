@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin\Tests;
+namespace DbSimply\Tests;
 
-use DbAdmin\Editor;
-use DbAdmin\TableOperations;
-use DbAdmin\UserError;
+use DbSimply\Editor;
+use DbSimply\TableOperations;
+use DbSimply\UserError;
 
 /**
  * Editing rows, and whole-table operations.

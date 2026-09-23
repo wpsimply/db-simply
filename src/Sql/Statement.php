@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin\Sql;
+namespace DbSimply\Sql;
 
 /**
  * One statement cut out of SQL text by the {@see Splitter}.

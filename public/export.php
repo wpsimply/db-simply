@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-use DbAdmin\Catalog;
-use DbAdmin\Connection;
-use DbAdmin\Download;
-use DbAdmin\Export;
-use DbAdmin\Rows;
-use DbAdmin\Session;
-use DbAdmin\UserError;
+use DbSimply\Catalog;
+use DbSimply\Connection;
+use DbSimply\Download;
+use DbSimply\Export;
+use DbSimply\Rows;
+use DbSimply\Session;
+use DbSimply\UserError;
 
 $config = require dirname(__DIR__).'/bootstrap.php';
 
-db_admin_headers();
+db_simply_headers();
 
 /**
  * Answer a failure that happened before anything was sent: a short page with
@@ -25,7 +25,7 @@ $fail = static function (string $message, int $status): never {
 
     echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
         '<title>Export failed</title><link rel="stylesheet" href="assets/app.css"></head><body><main class="signed-out"><div class="card">',
-        '<h1>Export failed</h1><p>', $e($message), '</p><a class="button primary" href="./">Back to DB Admin</a></div></main></body></html>';
+        '<h1>Export failed</h1><p>', $e($message), '</p><a class="button primary" href="./">Back to DB Simply</a></div></main></body></html>';
     exit;
 };
 
@@ -33,7 +33,7 @@ $session = new Session($config);
 $grant = $session->grant();
 
 if ($grant === null) {
-    $fail('Your session has ended. Open DB Admin again from your control panel.', 401);
+    $fail('Your session has ended. Open DB Simply again from your control panel.', 401);
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST' || ! $session->verifyCsrf($_POST['csrf'] ?? null)) {
@@ -100,7 +100,7 @@ try {
     $message = $e instanceof UserError ? $e->getMessage() : 'Something went wrong. The error has been logged.';
 
     if (! $e instanceof UserError) {
-        error_log('db-admin: export failed: '.$e);
+        error_log('db-simply: export failed: '.$e);
     }
 
     if ($download === null || ! $download->started()) {

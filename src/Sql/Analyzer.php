@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin\Sql;
+namespace DbSimply\Sql;
 
 /**
  * Tells what kind of statement a piece of SQL is, without parsing it.

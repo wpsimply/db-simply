@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin\Sql;
+namespace DbSimply\Sql;
 
 /**
  * Splits SQL text into statements, the way the mysql command-line client does.

@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin\Tests;
+namespace DbSimply\Tests;
 
-use DbAdmin\Sql\Analyzer;
-use DbAdmin\Sql\Splitter;
-use DbAdmin\Sql\Statement;
+use DbSimply\Sql\Analyzer;
+use DbSimply\Sql\Splitter;
+use DbSimply\Sql\Statement;
 
 /**
  * Splitting SQL into statements, and telling what each one does.

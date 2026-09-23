@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin\Tests;
+namespace DbSimply\Tests;
 
-use DbAdmin\Api;
-use DbAdmin\Connection;
-use DbAdmin\Session;
-use DbAdmin\UserError;
+use DbSimply\Api;
+use DbSimply\Connection;
+use DbSimply\Session;
+use DbSimply\UserError;
 
 /**
  * What the API lets a session do, before any of its work begins.
@@ -29,7 +29,7 @@ final class ApiTest extends TestCase
         $api = new Api($config, $session, new Connection($config));
         $query = ['db' => $target['database'], 'table' => 't'];
 
-        foreach ([['insert', ['values' => ['id' => '1']]], ['update', ['key' => ['id' => '1'], 'values' => ['id' => '2']]], ['delete', ['keys' => [['id' => '1']]]], ['table', ['tables' => ['t'], 'operation' => 'drop']], ['schema', ['change' => ['operation' => 'drop-column', 'table' => 't', 'name' => 'id'], 'preview' => true]], ['drop-object', ['type' => 'view', 'name' => 'v']]] as [$action, $body]) {
+        foreach ([['insert', ['values' => ['id' => '1']]], ['update', ['key' => ['id' => '1'], 'values' => ['id' => '2']]], ['delete', ['keys' => [['id' => '1']]]], ['table', ['tables' => ['t'], 'operation' => 'drop']], ['schema', ['change' => ['operation' => 'drop-column', 'table' => 't', 'name' => 'id'], 'preview' => true]], ['drop-object', ['type' => 'view', 'name' => 'v']], ['replace', ['search' => 'a', 'replace' => 'b']]] as [$action, $body]) {
             $error = self::assertThrows(UserError::class, fn () => $api->handle('POST', $action, $query, $body, $csrf), 'read-only');
             self::assertSame(403, $error->status);
         }

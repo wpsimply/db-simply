@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin;
+namespace DbSimply;
 
-use DbAdmin\Sql\Analyzer;
-use DbAdmin\Sql\Splitter;
+use DbSimply\Sql\Analyzer;
+use DbSimply\Sql\Splitter;
 use mysqli;
 use mysqli_result;
 use mysqli_sql_exception;

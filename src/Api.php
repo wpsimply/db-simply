@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace DbAdmin;
+namespace DbSimply;
 
 /**
  * The JSON API behind the UI: one action per request.
@@ -15,13 +15,13 @@ namespace DbAdmin;
  */
 final class Api
 {
-    private const array READS = ['session', 'databases', 'tables', 'structure', 'rows', 'value', 'row', 'fields', 'design', 'collations', 'objects', 'definition', 'search', 'processes'];
+    private const array READS = ['session', 'databases', 'tables', 'structure', 'rows', 'value', 'row', 'fields', 'design', 'collations', 'objects', 'definition', 'search', 'replace-preview', 'processes'];
 
     /**
      * Changes a read-only session may not make. (The console checks its
      * statements itself.)
      */
-    private const array WRITES = ['insert', 'update', 'delete', 'table', 'schema', 'drop-object'];
+    private const array WRITES = ['insert', 'update', 'delete', 'table', 'schema', 'drop-object', 'replace'];
 
     private ?Client $client = null;
 
@@ -41,7 +41,7 @@ final class Api
         $grant = $this->session->grant();
 
         if ($grant === null) {
-            throw new UserError('Your session has ended. Open DB Admin again from your control panel.', 401);
+            throw new UserError('Your session has ended. Open DB Simply again from your control panel.', 401);
         }
 
         $isRead = in_array($action, self::READS, true);
@@ -200,7 +200,30 @@ final class Api
                 return (new Search($this->client($grant), $catalog, $this->rows($catalog)))->run(
                     $db,
                     (string) ($query['q'] ?? ''),
-                    array_map(static fn (mixed $name): string => $catalog->table($db, $name)['name'], array_values($tables)),
+                    $this->tableNames($catalog, $db, $tables),
+                    (float) max(1, $this->config->int('import.budget')),
+                );
+
+            case 'replace-preview':
+                $db = $database();
+
+                return (new Replace($this->client($grant), $catalog))->preview(
+                    $db,
+                    (string) ($query['q'] ?? ''),
+                    (string) ($query['r'] ?? ''),
+                    $this->tableNames($catalog, $db, $this->jsonParameter($query['tables'] ?? null)),
+                    (float) max(1, $this->config->int('import.budget')),
+                );
+
+            case 'replace':
+                $db = $database();
+
+                return (new Replace($this->client($grant), $catalog))->run(
+                    $db,
+                    (string) ($body['search'] ?? ''),
+                    (string) ($body['replace'] ?? ''),
+                    $this->tableNames($catalog, $db, is_array($body['tables'] ?? null) ? $body['tables'] : []),
+                    $body['cursor'] ?? null,
                     (float) max(1, $this->config->int('import.budget')),
                 );
 
@@ -298,6 +321,17 @@ final class Api
         usort($names, static fn (string $a, string $b): int => [! str_starts_with($a, 'utf8mb4'), $a] <=> [! str_starts_with($b, 'utf8mb4'), $b]);
 
         return array_values(array_map(strval(...), $names));
+    }
+
+    /**
+     * Tables named by the browser, each resolved through the catalog.
+     *
+     * @param  array<mixed>  $names
+     * @return list<string>
+     */
+    private function tableNames(Catalog $catalog, string $database, array $names): array
+    {
+        return array_map(static fn (mixed $name): string => $catalog->table($database, $name)['name'], array_values($names));
     }
 
     private function editor(Catalog $catalog): Editor

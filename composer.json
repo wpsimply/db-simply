@@ -1,13 +1,13 @@
 {
-    "name": "wpsimply/db-admin",
+    "name": "wpsimply/db-simply",
     "description": "A small, self-hosted web UI for MariaDB and MySQL with one-time sign-on, built to sit next to a hosting control panel the way phpMyAdmin does.",
     "type": "project",
     "license": "MIT",
     "keywords": ["mysql", "mariadb", "admin", "gui", "sso", "phpmyadmin"],
-    "homepage": "https://github.com/wpsimply/db-admin",
+    "homepage": "https://github.com/wpsimply/db-simply",
     "support": {
-        "issues": "https://github.com/wpsimply/db-admin/issues",
-        "source": "https://github.com/wpsimply/db-admin"
+        "issues": "https://github.com/wpsimply/db-simply/issues",
+        "source": "https://github.com/wpsimply/db-simply"
     },
     "require": {
         "php": ">=8.3",
@@ -19,7 +19,7 @@
     },
     "autoload": {
         "psr-4": {
-            "DbAdmin\\": "src/"
+            "DbSimply\\": "src/"
         }
     },
     "config": {

@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-use DbAdmin\Api;
-use DbAdmin\Connection;
-use DbAdmin\Session;
-use DbAdmin\UserError;
+use DbSimply\Api;
+use DbSimply\Connection;
+use DbSimply\Session;
+use DbSimply\UserError;
 
 $config = require dirname(__DIR__).'/bootstrap.php';
 
-db_admin_headers();
+db_simply_headers();
 header('Content-Type: application/json; charset=utf-8');
 
 $method = (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET');
@@ -34,7 +34,7 @@ try {
     http_response_code($e->status);
     echo json_encode(['error' => $e->getMessage()], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 } catch (Throwable $e) {
-    error_log('db-admin: '.$e);
+    error_log('db-simply: '.$e);
     http_response_code(500);
     echo json_encode(['error' => 'Something went wrong. The error has been logged.']);
 }

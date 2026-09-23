@@ -3,11 +3,11 @@
 /*
  * The control panel's side of sign-on: authorise the user yourself, then
  * write a token and redirect. Run this on (or over SSH to) the host where
- * DB Admin is installed; the token file must be readable by its PHP-FPM pool
+ * DB Simply is installed; the token file must be readable by its PHP-FPM pool
  * and by nothing else.
  */
 
-$tokenDir = '/var/www/db-admin/storage/sso-tokens';
+$tokenDir = '/var/www/db-simply/storage/sso-tokens';
 
 $token = bin2hex(random_bytes(32));
 
