@@ -1,0 +1,39 @@
+{
+    "name": "wpsimply/db-admin",
+    "description": "A small, self-hosted web UI for MariaDB and MySQL with one-time sign-on, built to sit next to a hosting control panel the way phpMyAdmin does.",
+    "type": "project",
+    "license": "MIT",
+    "keywords": ["mysql", "mariadb", "admin", "gui", "sso", "phpmyadmin"],
+    "homepage": "https://github.com/wpsimply/db-admin",
+    "support": {
+        "issues": "https://github.com/wpsimply/db-admin/issues",
+        "source": "https://github.com/wpsimply/db-admin"
+    },
+    "require": {
+        "php": ">=8.3",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "ext-mysqli": "*",
+        "ext-session": "*",
+        "ext-sodium": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "DbAdmin\\": "src/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    },
+    "scripts": {
+        "test": "@php tests/run.php",
+        "post-create-project-cmd": [
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
+            "@php -r \"foreach (['storage/sessions', 'storage/sso-tokens', 'storage/imports'] as \\$dir) { is_dir(\\$dir) || mkdir(\\$dir, 0700, true); chmod(\\$dir, 0700); }\""
+        ]
+    },
+    "scripts-descriptions": {
+        "test": "Run the test suite (needs a git clone; the Composer package leaves the tests out)."
+    }
+}

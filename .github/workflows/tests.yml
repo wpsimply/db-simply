@@ -1,0 +1,104 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: mysqli, mbstring, sodium
+          coverage: none
+          tools: none
+
+      - name: PHP syntax
+        run: find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l > /dev/null
+
+      - name: JavaScript syntax
+        run: node --check public/assets/app.js
+
+      - name: Validate composer.json
+        run: composer validate --strict --no-check-publish
+
+      - name: Release archive builds
+        run: |
+          build/release.sh 0.0.0-ci /tmp/dist
+          unzip -l /tmp/dist/db-admin-0.0.0-ci.zip
+
+  test:
+    name: PHP ${{ matrix.php }} · ${{ matrix.server }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.4', '8.5']
+        server: ['mariadb:11.4']
+        include:
+          - php: '8.5'
+            server: 'mariadb:10.6'
+          - php: '8.5'
+            server: 'mariadb:10.11'
+          - php: '8.5'
+            server: 'mysql:8.0'
+          - php: '8.5'
+            server: 'mysql:8.4'
+
+    services:
+      database:
+        image: ${{ matrix.server }}
+        ports:
+          - 3306:3306
+        # Both images read these. The test user gets all privileges on the
+        # test database only, as an account's user does on a server.
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: dbadmin_test
+          MYSQL_USER: tester
+          MYSQL_PASSWORD: secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mysqli, mbstring, sodium
+          coverage: none
+          tools: none
+
+      - name: Unit tests
+        run: php tests/run.php
+
+      - name: Wait for the database
+        run: |
+          for i in $(seq 1 60); do
+            php -r 'mysqli_report(MYSQLI_REPORT_OFF); exit(@mysqli_connect("127.0.0.1", "tester", "secret", "dbadmin_test", 3306) ? 0 : 1);' && exit 0
+            sleep 2
+          done
+          echo "The database did not come up." >&2
+          exit 1
+
+      - name: Integration tests
+        run: php tests/run.php
+        env:
+          DB_ADMIN_TEST_HOST: 127.0.0.1
+          DB_ADMIN_TEST_PORT: 3306
+          DB_ADMIN_TEST_USER: tester
+          DB_ADMIN_TEST_PASSWORD: secret
+          DB_ADMIN_TEST_DATABASE: dbadmin_test
