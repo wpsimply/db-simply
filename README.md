@@ -5,13 +5,15 @@ A small, self-hosted web UI for MariaDB and MySQL, built to sit next to a hostin
 - Databases and tables with row counts, sizes, engine, collation and overhead
 - Browse any table page by page: sort by any column, filter with conditions, search every text column; long and binary values are shown safely, and opened in full on click
 - JSON and PHP-serialized values (WordPress options and meta) are decoded for reading; classes are never instantiated
+- Edit, insert, copy and delete rows. Rows are always picked out by their primary or unique key, and every change touches one row per key at most
 - Structure: columns, indexes, foreign keys, triggers and the `CREATE` statement
+- Table operations: rename, empty, truncate, drop, optimize, analyze, check and repair, one table or several at once
 - SQL console: runs several statements in order, stops at the first error, cuts long results off, and asks before anything that throws data away (`DROP`, `TRUNCATE`, `DELETE` or `UPDATE` without `WHERE`)
+- Export a database or some of its tables as an SQL dump (optionally gzipped), a table's rows or a query's result as CSV. Exports stream, so their size is not limited by memory
+- Import `.sql` and `.sql.gz` files of any size: uploaded in chunks, run in slices of a few seconds each, and resumable past a failed statement
 - Read-only sessions, for support access
 - The URL records the database, table, tab, page, sort and filters, so a reload lands on the same view and every tab can work in a database of its own
 - No build step, no runtime dependencies: plain PHP 8.3+, mysqli, and a vendored copy of Alpine.js
-
-Editing rows, export and import are next; see [Roadmap](#roadmap).
 
 ## Requirements
 
@@ -24,7 +26,7 @@ Editing rows, export and import are next; see [Roadmap](#roadmap).
 Download the zip from the [latest release](https://github.com/wpsimply/db-admin/releases/latest). It holds only the files a server needs, inside a single `db-admin/` directory:
 
 ```sh
-version=0.1.0
+version=0.2.0
 curl -fsSLO "https://github.com/wpsimply/db-admin/releases/download/v${version}/db-admin-${version}.zip"
 curl -fsSLO "https://github.com/wpsimply/db-admin/releases/download/v${version}/db-admin-${version}.zip.sha256"
 sha256sum -c "db-admin-${version}.zip.sha256"
@@ -53,7 +55,7 @@ chown -R www-data:www-data storage
 chmod 700 storage/sessions storage/sso-tokens storage/imports
 ```
 
-Point the web server at `public/`. There are examples for nginx and PHP-FPM in [`examples/`](examples).
+Point the web server at `public/`, and let it run `index.php`, `sso.php`, `api.php`, `export.php`, `import.php` and `logout.php`. Imports upload in 8 MB chunks, so allow request bodies of at least 9 MB, in the web server and in PHP's `post_max_size`. There are examples for nginx and PHP-FPM in [`examples/`](examples).
 
 ## Configure
 
@@ -75,6 +77,8 @@ The settings that matter:
 | `DB_ADMIN_TOKEN_TTL` | Seconds a token stays valid. Default 60. |
 | `DB_ADMIN_PANEL_URL` | Linked from the signed-out page. |
 | `DB_ADMIN_SESSION_SECURE` | Keep `true` in production; `false` only for local HTTP. |
+| `DB_ADMIN_IMPORT_MAX_BYTES` | The largest file an import accepts. Default 2 GB. A gzipped file may decompress to 20 times this. |
+| `DB_ADMIN_IMPORT_BUDGET` | Seconds each import request runs statements before it reports progress. Default 20; keep it well under the web server's timeout. |
 
 See [`.env.example`](.env.example) for all of them.
 
@@ -114,7 +118,9 @@ The token is spent on first use and expires after `DB_ADMIN_TOKEN_TTL` seconds e
 - **Scope the database user.** What a session can reach is exactly what its user's privileges allow. Give each account a user with privileges on its own databases only, and no global privileges such as `FILE`, `PROCESS` or `SUPER`.
 - The password is kept in the server-side session encrypted, under a key held only in a cookie of its own. The session file alone does not reveal it.
 - `LOAD DATA LOCAL INFILE` is switched off on every connection, so a query cannot read files the web server can see.
-- Read-only sessions refuse any statement that is not a read, and run on the server in read-only transactions as well.
+- Read-only sessions refuse any statement that is not a read, and run on the server in read-only transactions as well. They cannot edit rows, run table operations or import.
+- Imports are kept in `storage/imports` while they run, readable by the pool user only, and belong to the session that started them. Finished and cancelled imports are deleted at once, abandoned ones after a day.
+- Dumps leave `DEFINER` clauses out, so views and triggers import as the importing user. On MySQL with binary logging, creating a trigger needs `SUPER` unless the server sets `log_bin_trust_function_creators = 1`.
 - Tokens are single-use and short-lived. Pages are sent with `Referrer-Policy: no-referrer`, so the token URL doesn't leak to other sites.
 - Every change needs the session's CSRF token. Sessions end after `DB_ADMIN_SESSION_IDLE_TIMEOUT` seconds of inactivity, or after `DB_ADMIN_SESSION_LIFETIME` seconds regardless.
 - The Content-Security-Policy allows scripts only from this origin. Alpine.js needs `'unsafe-eval'` to evaluate its directives. No directive is ever built from database data, and values are only ever rendered as text.
@@ -153,12 +159,10 @@ The release workflow runs the test suite, then builds `db-admin-<version>.zip` w
 
 ## Roadmap
 
-- Edit, insert, duplicate and delete rows, keyed on the primary or unique key
-- Export a database or tables as SQL (streamed, gzip) and a table or query result as CSV
-- Import `.sql` and `.sql.gz` files of any size, in resumable chunks
-- Table operations: truncate, drop, optimize, repair, analyze, rename
-- Structure editing: columns, indexes, new tables
-- Search across a whole database; views, routines, triggers and events
+- Structure editing: add, change and drop columns and indexes, create tables, with the generated `ALTER` shown first
+- Search across a whole database
+- Views, stored procedures and functions, triggers and events: list, show, drop, and include them in dumps
+- The server's process list for the user's own connections
 
 ## License
 

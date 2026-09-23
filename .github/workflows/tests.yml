@@ -94,6 +94,12 @@ jobs:
           echo "The database did not come up." >&2
           exit 1
 
+      # MySQL with binary logging refuses to create triggers for a user
+      # without SUPER unless told to trust them, as a hosting server would be.
+      - name: Allow triggers without SUPER
+        if: startsWith(matrix.server, 'mysql')
+        run: php -r '$db = new mysqli("127.0.0.1", "root", "root", "", 3306); $db->query("SET GLOBAL log_bin_trust_function_creators = 1");'
+
       - name: Integration tests
         run: php tests/run.php
         env:

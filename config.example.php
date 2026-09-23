@@ -34,6 +34,17 @@ return [
         'token_ttl' => 60,
     ],
 
+    /*
+     * Imports: where uploads are kept while they run (writable by the pool
+     * and nobody else), the largest file accepted, and the seconds each
+     * request spends running statements before it reports progress.
+     */
+    'import' => [
+        'dir' => __DIR__.'/storage/imports',
+        'max_bytes' => 2147483648,
+        'budget' => 20,
+    ],
+
     'session' => [
         'save_path' => __DIR__.'/storage/sessions',
         'name' => 'DbAdminSession',

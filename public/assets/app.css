@@ -165,6 +165,8 @@ textarea { resize: vertical; font-family: var(--mono); font-size: 12.5px; }
 .menu-items.wide { width: min(560px, 80vw); }
 .menu-items button { display: block; width: 100%; padding: 7px 10px; background: none; border: 0; border-radius: 4px; text-align: left; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .menu-items button:hover { background: var(--surface-2); }
+.menu-items.right { left: auto; right: 0; }
+.menu-items hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
 
 .detail { overflow-y: auto; min-width: 0; padding: 16px 24px 24px; }
 .placeholder { display: grid; place-content: center; justify-items: center; height: 100%; text-align: center; color: var(--muted); }
@@ -175,6 +177,7 @@ textarea { resize: vertical; font-family: var(--mono); font-size: 12.5px; }
 .crumbs .crumb { font: inherit; padding: 0; }
 .crumbs .sep { margin: 0 6px; color: var(--muted); font-weight: 400; }
 .meta-items { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: 12.5px; }
+.head-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .tabs { display: inline-flex; justify-self: start; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .tabs button { padding: 4px 14px; background: var(--surface); border: 0; cursor: pointer; }
 .tabs button + button { border-left: 1px solid var(--border); }
@@ -194,6 +197,13 @@ table.grid tbody tr:hover td { background: var(--surface-2); }
 table.grid .num { text-align: right; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
 table.grid .pre { white-space: pre-wrap; word-break: break-word; }
 tr.clickable { cursor: pointer; }
+table.grid tr.selected td { background: var(--accent-soft); }
+table.grid .check-col { width: 1%; }
+table.grid .check-col input, table.grid .row-actions input { margin: 0; vertical-align: middle; }
+table.data td.row-actions, table.data th.row-actions { width: 1%; white-space: nowrap; font-family: var(--sans); }
+table.data td.row-actions .link { font-size: 12.5px; }
+.selection { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; padding: 6px 10px; border-radius: var(--radius); background: var(--accent-soft); font-size: 13px; }
+.selection span { margin-right: auto; }
 
 table.data td { font-family: var(--mono); font-size: 12.5px; }
 table.data td.cell { max-width: 360px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
@@ -255,6 +265,26 @@ pre.code {
 .value-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .value-bar .format { color: var(--muted); font-size: 12px; margin-left: auto; }
 pre.code.value { min-height: 120px; max-height: 65vh; }
+.modal label.stack { display: grid; gap: 4px; font-size: 13px; font-weight: 500; }
+.modal fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; }
+.modal legend { font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+.check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.check input { width: auto; min-height: 0; margin: 0; }
+.modal footer.spread { justify-content: flex-start; }
+.stack-form { display: grid; gap: 12px; }
+.row-editor { display: grid; gap: 10px; }
+.row-editor .field { display: grid; gap: 4px; }
+.row-editor .field.generated { opacity: .7; }
+.field-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.field-name { font-weight: 600; }
+.field-type { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.field-mode { width: auto; min-height: 26px; padding: 1px 6px; font-size: 12px; }
+.field-note { margin: 0; }
+.row-editor textarea.single { min-height: 32px; height: 32px; resize: vertical; }
+.progress-bar { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.progress-bar span { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+.progress-bar.failed span { background: var(--danger); }
+.failed-sql { display: block; margin-top: 6px; color: var(--muted); white-space: pre-wrap; word-break: break-word; }
 .confirm-list { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
 .confirm-list code { display: block; margin-top: 2px; color: var(--muted); white-space: pre-wrap; word-break: break-word; }
 

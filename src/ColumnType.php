@@ -48,7 +48,7 @@ final class ColumnType
             MYSQLI_TYPE_SET => 'set',
             MYSQLI_TYPE_GEOMETRY => 'geometry',
             MYSQLI_TYPE_TINY_BLOB, MYSQLI_TYPE_BLOB, MYSQLI_TYPE_MEDIUM_BLOB, MYSQLI_TYPE_LONG_BLOB => $binary ? 'blob' : 'text',
-            MYSQLI_TYPE_VAR_STRING, MYSQLI_TYPE_VARCHAR => $binary ? 'varbinary' : 'varchar',
+            MYSQLI_TYPE_VAR_STRING => $binary ? 'varbinary' : 'varchar',
             MYSQLI_TYPE_STRING => $binary ? 'binary' : 'char',
             MYSQLI_TYPE_NULL => 'null',
             default => 'unknown',

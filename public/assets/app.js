@@ -21,6 +21,12 @@ document.addEventListener('alpine:init', () => {
         }
     };
 
+    const IMPORT_CHUNK = 8 * 1024 * 1024;
+
+    const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+    const emptyEditor = () => ({ mode: 'edit', loading: false, fields: [], texts: {}, modes: {}, locked: {}, original: { texts: {}, modes: {} }, key: null });
+
     const emptyBrowse = () => ({ columns: [], rows: [], key: null, offset: 0, hasMore: false, total: null, exact: true, error: '' });
 
     Alpine.data('dbAdmin', () => ({
@@ -62,6 +68,17 @@ document.addEventListener('alpine:init', () => {
         modal: null,
         modalTitle: '',
         cell: { loading: false, value: null, format: null, pretty: null, view: 'raw' },
+
+        selectedRows: [],
+        tableSelection: [],
+        editor: emptyEditor(),
+        danger: { message: '', phrase: '', typed: '', label: '', run: null },
+        renameTo: '',
+        messages: [],
+        exportOptions: { tables: [], structure: true, data: true, gzip: false },
+        importJob: null,
+        importCancelled: false,
+        lastSql: '',
 
         urlReady: false,
         pending: 0,
@@ -252,6 +269,7 @@ document.addEventListener('alpine:init', () => {
         // ---- Databases and tables -----------------------------------------
 
         async selectDatabase() {
+            this.tableSelection = [];
             this.table = null;
             this.tab = 'tables';
             this.tableFilter = '';
@@ -273,6 +291,7 @@ document.addEventListener('alpine:init', () => {
 
                 if (db === this.db) {
                     this.tables = tables;
+                    this.tableSelection = this.tableSelection.filter((name) => tables.some((item) => item.name === name));
                 }
             } catch (error) {
                 this.fail(error);
@@ -398,6 +417,7 @@ document.addEventListener('alpine:init', () => {
                 // A response to an older request never lands over a newer one.
                 if (request === this.rowsRequest) {
                     this.browse = { ...data, error: '' };
+                    this.selectedRows = [];
                 }
             } catch (error) {
                 if (request === this.rowsRequest) {
@@ -659,6 +679,7 @@ document.addEventListener('alpine:init', () => {
                 }
 
                 this.remember(this.sql);
+                this.lastSql = sql;
                 this.sqlResults = data.results;
                 this.sqlTotal = data.total;
 
@@ -725,10 +746,515 @@ document.addEventListener('alpine:init', () => {
             return `${set.rowCount.toLocaleString()} row${set.rowCount === 1 ? '' : 's'}`;
         },
 
+        // ---- Editing rows -------------------------------------------------
+
+        canWrite() {
+            return !this.session.readonly;
+        },
+
+        isView() {
+            const current = this.currentTable();
+            return Boolean(current && current.view);
+        },
+
+        rowsEditable() {
+            return this.canWrite() && Array.isArray(this.browse.key) && !this.isView();
+        },
+
+        fieldModes(field) {
+            const modes = ['value'];
+
+            if (field.nullable) {
+                modes.push('null');
+            }
+
+            if (this.editor.mode === 'insert') {
+                modes.push('default');
+            }
+
+            return modes;
+        },
+
+        async openEditor(r) {
+            const key = this.rowKey(this.browse.rows[r]);
+
+            if (key === null) {
+                this.notify('This row cannot be picked out on its own, so it cannot be edited here.', 'error');
+                return;
+            }
+
+            this.editor = { ...emptyEditor(), loading: true, key };
+            this.modalTitle = `Edit row in ${this.table}`;
+            this.modal = 'row';
+
+            try {
+                const data = await this.api('row', { query: { db: this.db, table: this.table, key: JSON.stringify(key) } });
+                const texts = {};
+                const modes = {};
+                const locked = {};
+
+                data.fields.forEach((field) => {
+                    const value = data.values[field.name];
+                    locked[field.name] = isObject(value) && 'len' in value;
+                    modes[field.name] = value === null ? 'null' : 'value';
+                    texts[field.name] = value === null ? '' : (typeof value === 'string' ? value : (value.$b64 ?? value.$t));
+                });
+
+                this.editor = { ...this.editor, loading: false, fields: data.fields, texts, modes, locked, original: { texts: { ...texts }, modes: { ...modes } } };
+            } catch (error) {
+                this.modal = null;
+                this.fail(error);
+            }
+        },
+
+        async openInsert() {
+            this.editor = { ...emptyEditor(), mode: 'insert', loading: true };
+            this.modalTitle = `Insert a row into ${this.table}`;
+            this.modal = 'row';
+
+            try {
+                const fields = await this.api('fields', { query: { db: this.db, table: this.table } });
+                const texts = {};
+                const modes = {};
+
+                fields.forEach((field) => {
+                    texts[field.name] = field.options && field.dataType === 'enum' && !field.nullable ? field.options[0] : '';
+                    modes[field.name] = field.autoIncrement || field.default !== null ? 'default' : (field.nullable ? 'null' : 'value');
+                });
+
+                this.editor = { ...this.editor, loading: false, fields, texts, modes };
+            } catch (error) {
+                this.modal = null;
+                this.fail(error);
+            }
+        },
+
+        /**
+         * The value a field sends, or undefined to leave the column out.
+         */
+        fieldValue(field) {
+            const mode = this.editor.modes[field.name];
+
+            if (field.generated || this.editor.locked[field.name] || mode === 'default') {
+                return undefined;
+            }
+
+            if (mode === 'null') {
+                return null;
+            }
+
+            const text = this.editor.texts[field.name] ?? '';
+
+            if (field.binary) {
+                const b64 = text.replace(/\s+/g, '');
+
+                try {
+                    atob(b64);
+                } catch {
+                    throw new Error(`${field.name} is not valid base64.`);
+                }
+
+                return { $b64: b64 };
+            }
+
+            return text;
+        },
+
+        async saveRow(asNew) {
+            await this.run(async () => {
+                const values = {};
+                const inserting = this.editor.mode === 'insert' || asNew;
+
+                this.editor.fields.forEach((field) => {
+                    // A copy gets a new auto-increment number, not the old one.
+                    if (asNew && field.autoIncrement) {
+                        return;
+                    }
+
+                    const changed = this.editor.modes[field.name] !== this.editor.original.modes[field.name]
+                        || this.editor.texts[field.name] !== this.editor.original.texts[field.name];
+
+                    if (!inserting && !changed) {
+                        return;
+                    }
+
+                    const value = this.fieldValue(field);
+
+                    if (value !== undefined) {
+                        values[field.name] = value;
+                    }
+                });
+
+                if (asNew && this.editor.fields.some((field) => this.editor.locked[field.name])) {
+                    throw new Error('This row has values too long to copy here.');
+                }
+
+                if (inserting) {
+                    const data = await this.api('insert', { query: { db: this.db, table: this.table }, body: { values } });
+                    this.notify(data.insertId ? `Row inserted (id ${data.insertId}).` : 'Row inserted.');
+                } else {
+                    if (Object.keys(values).length === 0) {
+                        this.notify('Nothing was changed.');
+                        this.modal = null;
+                        return;
+                    }
+
+                    await this.api('update', { query: { db: this.db, table: this.table }, body: { key: this.editor.key, values } });
+                    this.notify('Row saved.');
+                }
+
+                this.modal = null;
+                await Promise.all([this.loadRows(), this.loadTables()]);
+            }, asNew ? 'duplicate' : 'save');
+        },
+
+        confirmDeleteRow() {
+            const key = this.editor.key;
+
+            this.confirmDanger({
+                title: 'Delete this row?',
+                message: `The row is removed from ${this.table} for good.`,
+                label: 'Delete row',
+                run: () => this.deleteRows([key]),
+            });
+        },
+
+        confirmDeleteRows() {
+            const keys = this.selectedRows.map((index) => this.rowKey(this.browse.rows[index]));
+
+            if (keys.some((key) => key === null)) {
+                this.notify('Some of the selected rows cannot be picked out on their own.', 'error');
+                return;
+            }
+
+            this.confirmDanger({
+                title: `Delete ${keys.length} row${keys.length === 1 ? '' : 's'}?`,
+                message: `The selected rows are removed from ${this.table} for good.`,
+                label: 'Delete',
+                run: () => this.deleteRows(keys),
+            });
+        },
+
+        async deleteRows(keys) {
+            const data = await this.api('delete', { query: { db: this.db, table: this.table }, body: { keys } });
+            this.notify(`${data.deleted} row${data.deleted === 1 ? '' : 's'} deleted.`);
+            await Promise.all([this.loadRows(), this.loadTables()]);
+        },
+
+        confirmDanger(options) {
+            this.danger = { phrase: '', typed: '', label: 'Continue', ...options };
+            this.modalTitle = options.title;
+            this.modal = 'danger';
+        },
+
+        async runDanger() {
+            if (this.danger.phrase && this.danger.typed !== this.danger.phrase) {
+                return;
+            }
+
+            await this.run(async () => {
+                await this.danger.run();
+                this.modal = null;
+            }, 'danger');
+        },
+
+        // ---- Table operations ---------------------------------------------
+
+        confirmTableOperation(tables, operation) {
+            const list = tables.length === 1 ? tables[0] : `${tables.length} tables`;
+            const text = {
+                empty: [`Empty ${list}?`, 'Every row is deleted, one by one, so triggers run and the auto-increment counter is kept.', 'Empty'],
+                truncate: [`Truncate ${list}?`, 'Every row is removed at once and the auto-increment counter starts again from 1.', 'Truncate'],
+                drop: [`Drop ${list}?`, 'The table and all of its rows are removed for good.', 'Drop'],
+            }[operation];
+
+            this.confirmDanger({
+                title: text[0],
+                message: text[1] + (tables.length > 1 ? ' Tables: ' + tables.join(', ') + '.' : ''),
+                label: text[2],
+                phrase: tables.length === 1 ? tables[0] : this.db,
+                run: async () => {
+                    await this.api('table', { query: { db: this.db }, body: { tables, operation } });
+                    this.notify(`${text[2]}: done.`);
+                    this.tableSelection = [];
+
+                    if (operation === 'drop' && tables.includes(this.table)) {
+                        this.openOverview();
+                        return;
+                    }
+
+                    await this.loadTables();
+
+                    if (this.table && this.tab === 'browse') {
+                        await this.loadRows();
+                    }
+                },
+            });
+        },
+
+        async maintain(tables, operation) {
+            await this.run(async () => {
+                const data = await this.api('table', { query: { db: this.db }, body: { tables, operation } });
+                this.messages = data.messages;
+                this.modalTitle = operation.charAt(0).toUpperCase() + operation.slice(1);
+                this.modal = 'messages';
+                await this.loadTables();
+            }, 'maintain');
+        },
+
+        openRename() {
+            this.renameTo = this.table;
+            this.modalTitle = `Rename ${this.table}`;
+            this.modal = 'rename';
+        },
+
+        async rename() {
+            await this.run(async () => {
+                const name = this.renameTo.trim();
+                await this.api('table', { query: { db: this.db }, body: { tables: [this.table], operation: 'rename', name } });
+                this.modal = null;
+                this.notify(`Renamed to ${name}.`);
+                this.table = name;
+                this.structure = null;
+                await this.loadTables();
+                await this.setTab(this.tab);
+            }, 'rename');
+        },
+
+        // ---- Export ---------------------------------------------------------
+
+        openExport(tables) {
+            this.exportOptions = { tables: [...tables], structure: true, data: true, gzip: false };
+            this.modalTitle = tables.length === 1 ? `Export ${tables[0]}` : `Export ${this.db}`;
+            this.modal = 'export';
+        },
+
+        submitExport() {
+            this.download({
+                format: 'sql',
+                db: this.db,
+                tables: JSON.stringify(this.exportOptions.tables),
+                structure: this.exportOptions.structure ? '1' : '',
+                data: this.exportOptions.data ? '1' : '',
+                gzip: this.exportOptions.gzip ? '1' : '',
+            });
+            this.modal = null;
+        },
+
+        exportCsv() {
+            this.download({
+                format: 'csv',
+                db: this.db,
+                table: this.table,
+                filters: JSON.stringify(this.appliedFilters),
+                q: this.appliedSearch,
+            });
+        },
+
+        exportQueryCsv() {
+            this.download({ format: 'csv', db: this.db, sql: this.lastSql });
+        },
+
+        /**
+         * Downloads are a plain form post: the browser streams the file to
+         * disk itself, however large it is.
+         */
+        download(fields) {
+            const form = document.createElement('form');
+            form.method = 'post';
+            form.action = 'export.php';
+            form.hidden = true;
+
+            Object.entries({ csrf: this.csrf, ...fields }).forEach(([name, value]) => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = name;
+                input.value = value ?? '';
+                form.appendChild(input);
+            });
+
+            document.body.appendChild(form);
+            form.submit();
+            form.remove();
+            this.notify('The download will start in a moment.');
+        },
+
+        // ---- Import ---------------------------------------------------------
+
+        openImport() {
+            this.importJob = null;
+            this.modalTitle = `Import into ${this.db}`;
+            this.modal = 'import';
+        },
+
+        async importRequest(action, { id = null, offset = null, json = null, body = null } = {}) {
+            const params = new URLSearchParams({ action });
+
+            if (id !== null) params.set('id', id);
+            if (offset !== null) params.set('offset', String(offset));
+
+            const headers = { Accept: 'application/json', 'X-CSRF-Token': this.csrf };
+
+            if (json !== null) {
+                headers['Content-Type'] = 'application/json';
+            }
+
+            this.pending++;
+
+            try {
+                const response = await fetch('import.php?' + params.toString(), {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers,
+                    body: json !== null ? JSON.stringify(json) : body,
+                });
+
+                return await this.unwrap(response);
+            } finally {
+                this.pending--;
+            }
+        },
+
+        async startImport() {
+            const file = this.$refs.importFile && this.$refs.importFile.files[0];
+
+            if (!file) {
+                return;
+            }
+
+            this.importCancelled = false;
+
+            await this.importing(async () => {
+                let job = await this.importRequest('start', { json: { name: file.name, size: file.size, db: this.db } });
+                this.importJob = job;
+
+                while (job.received < job.size && !this.importCancelled) {
+                    const chunk = file.slice(job.received, job.received + IMPORT_CHUNK);
+                    job = await this.importRequest('chunk', { id: job.id, offset: job.received, body: chunk });
+                    this.importJob = job;
+                }
+
+                await this.runImport(job);
+            });
+        },
+
+        async skipImport() {
+            await this.importing(async () => {
+                const job = await this.importRequest('skip', { id: this.importJob.id });
+                this.importJob = job;
+                await this.runImport(job);
+            });
+        },
+
+        async runImport(job) {
+            while (['ready', 'running'].includes(job.state) && !this.importCancelled) {
+                job = await this.importRequest('run', { id: job.id });
+
+                if (!this.importCancelled) {
+                    this.importJob = job;
+                }
+
+                if (job.busy) {
+                    await sleep(1000);
+                }
+            }
+
+            if (job.state === 'done' && !this.importCancelled) {
+                this.notify(`Import finished: ${job.statements.toLocaleString()} statements.`);
+            }
+        },
+
+        /**
+         * Run an import step, turning a failed request into a failed job
+         * rather than a lost one, and refreshing what it may have changed.
+         */
+        async importing(step) {
+            try {
+                await step();
+            } catch (error) {
+                if (!this.importCancelled) {
+                    this.importJob = { ...(this.importJob || { name: '', statements: 0 }), state: 'failed', canSkip: false, error: { line: '?', message: error.message, sql: '' } };
+                }
+            } finally {
+                this.loadTables();
+            }
+        },
+
+        async cancelImport() {
+            this.importCancelled = true;
+            const job = this.importJob;
+            this.importJob = { ...job, state: 'cancelled' };
+
+            if (job && job.id) {
+                try {
+                    await this.importRequest('cancel', { id: job.id });
+                } catch {
+                    // Already finished or gone: there is nothing left to stop.
+                }
+            }
+        },
+
+        /**
+         * Close the dialog. A failed import that is not going to be carried
+         * on is removed now rather than waiting on the server for a day.
+         */
+        async closeImport() {
+            const job = this.importJob;
+            this.importJob = null;
+            this.modal = null;
+
+            if (job && job.id && job.state === 'failed') {
+                this.importCancelled = true;
+
+                try {
+                    await this.importRequest('cancel', { id: job.id });
+                } catch {
+                    // Gone already.
+                }
+            }
+        },
+
+        importPercent() {
+            const job = this.importJob;
+
+            if (!job) return 0;
+            if (job.state === 'done') return 100;
+            if (job.state === 'uploading') return job.size ? Math.floor((job.received / job.size) * 100) : 0;
+
+            return job.sqlSize ? Math.floor((job.offset / job.sqlSize) * 100) : 0;
+        },
+
+        importStatus() {
+            const job = this.importJob;
+            const statements = `${(job.statements || 0).toLocaleString()} statement${job.statements === 1 ? '' : 's'}`;
+
+            return {
+                uploading: `Uploading… ${this.bytes(job.received)} of ${this.bytes(job.size)}`,
+                ready: 'Preparing…',
+                running: `Running… ${statements} so far` + (job.sqlSize ? `, ${this.bytes(job.offset)} of ${this.bytes(job.sqlSize)}` : ''),
+                done: `Finished: ${statements} ran.`,
+                failed: `Stopped at an error after ${statements}. Those statements stay applied.`,
+                cancelled: `Stopped after ${statements}. Those statements stay applied.`,
+            }[job.state] || '';
+        },
+
         // ---- Modals and notices --------------------------------------------
 
         closeModal() {
+            if (this.modalLocked()) {
+                return;
+            }
+
             this.modal = null;
+        },
+
+        /**
+         * A dialog whose work is running cannot be walked away from; the
+         * import has a Stop button of its own for that.
+         */
+        modalLocked() {
+            return this.action === 'danger'
+                || (this.modal === 'import' && this.importJob !== null && ['uploading', 'ready', 'running'].includes(this.importJob.state));
         },
 
         async copy(text) {

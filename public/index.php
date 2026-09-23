@@ -122,10 +122,59 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                         </span>
                     </template>
                 </div>
-                <div class="tabs" role="tablist" x-show="table">
-                    <button type="button" role="tab" :aria-selected="tab === 'browse'" @click="setTab('browse')">Browse</button>
-                    <button type="button" role="tab" :aria-selected="tab === 'structure'" @click="setTab('structure')">Structure</button>
-                    <button type="button" role="tab" :aria-selected="tab === 'sql'" @click="setTab('sql')">SQL</button>
+                <div class="head-row" x-show="table">
+                    <div class="tabs" role="tablist">
+                        <button type="button" role="tab" :aria-selected="tab === 'browse'" @click="setTab('browse')">Browse</button>
+                        <button type="button" role="tab" :aria-selected="tab === 'structure'" @click="setTab('structure')">Structure</button>
+                        <button type="button" role="tab" :aria-selected="tab === 'sql'" @click="setTab('sql')">SQL</button>
+                    </div>
+                    <span class="spacer"></span>
+                    <button type="button" class="button small primary" x-show="canWrite() && !isView()" @click="openInsert()" :disabled="busy">Insert row</button>
+                    <div class="menu" x-data="{ open: false }" @click.outside="open = false">
+                        <button type="button" class="button small" @click="open = !open" :disabled="busy">Export</button>
+                        <div class="menu-items right" x-show="open" x-transition.opacity @click="open = false">
+                            <button type="button" @click="openExport([table])">SQL dump of this table…</button>
+                            <button type="button" @click="exportCsv()" x-text="appliedFilters.length || appliedSearch ? 'CSV of the matching rows' : 'CSV of all rows'"></button>
+                        </div>
+                    </div>
+                    <div class="menu" x-data="{ open: false }" @click.outside="open = false" x-show="canWrite()">
+                        <button type="button" class="button small" @click="open = !open" :disabled="busy">Operations</button>
+                        <div class="menu-items right" x-show="open" x-transition.opacity @click="open = false">
+                            <button type="button" @click="openRename()">Rename…</button>
+                            <template x-if="!isView()">
+                                <div>
+                                    <hr>
+                                    <button type="button" @click="maintain([table], 'optimize')">Optimize</button>
+                                    <button type="button" @click="maintain([table], 'analyze')">Analyze</button>
+                                    <button type="button" @click="maintain([table], 'check')">Check</button>
+                                    <button type="button" @click="maintain([table], 'repair')">Repair</button>
+                                    <hr>
+                                    <button type="button" class="danger" @click="confirmTableOperation([table], 'empty')">Empty (delete all rows)…</button>
+                                    <button type="button" class="danger" @click="confirmTableOperation([table], 'truncate')">Truncate…</button>
+                                </div>
+                            </template>
+                            <hr>
+                            <button type="button" class="danger" @click="confirmTableOperation([table], 'drop')" x-text="isView() ? 'Drop view…' : 'Drop table…'"></button>
+                        </div>
+                    </div>
+                </div>
+                <div class="head-row" x-show="!table && tab === 'tables'">
+                    <span class="muted small" x-text="tableSelection.length ? tableSelection.length + ' selected' : 'Select tables to act on several at once.'"></span>
+                    <span class="spacer"></span>
+                    <button type="button" class="button small" @click="openImport()" x-show="canWrite()" :disabled="busy">Import…</button>
+                    <button type="button" class="button small" @click="openExport(tableSelection)" :disabled="busy || tables.length === 0" x-text="tableSelection.length ? 'Export selected…' : 'Export…'"></button>
+                    <div class="menu" x-data="{ open: false }" @click.outside="open = false" x-show="canWrite()">
+                        <button type="button" class="button small" @click="open = !open" :disabled="busy || tableSelection.length === 0">With selected</button>
+                        <div class="menu-items right" x-show="open" x-transition.opacity @click="open = false">
+                            <button type="button" @click="maintain(tableSelection, 'optimize')">Optimize</button>
+                            <button type="button" @click="maintain(tableSelection, 'analyze')">Analyze</button>
+                            <button type="button" @click="maintain(tableSelection, 'check')">Check</button>
+                            <button type="button" @click="maintain(tableSelection, 'repair')">Repair</button>
+                            <hr>
+                            <button type="button" class="danger" @click="confirmTableOperation(tableSelection, 'empty')">Empty…</button>
+                            <button type="button" class="danger" @click="confirmTableOperation(tableSelection, 'drop')">Drop…</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -140,6 +189,7 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                     <table class="grid">
                         <thead>
                             <tr>
+                                <th class="check-col"><input type="checkbox" :checked="tables.length > 0 && tableSelection.length === filteredTables().length" @change="tableSelection = $event.target.checked ? filteredTables().map((t) => t.name) : []" aria-label="Select all tables"></th>
                                 <th>Table</th>
                                 <th class="num">Rows</th>
                                 <th class="num">Data</th>
@@ -152,7 +202,8 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                         </thead>
                         <tbody>
                             <template x-for="item in filteredTables()" :key="item.name">
-                                <tr class="clickable" @click="openTable(item.name)">
+                                <tr class="clickable" :class="{ selected: tableSelection.includes(item.name) }" @click="openTable(item.name)">
+                                    <td class="check-col" @click.stop><input type="checkbox" :value="item.name" x-model="tableSelection" :aria-label="'Select ' + item.name"></td>
                                     <td><button type="button" class="link" x-text="item.name"></button> <span class="badge" x-show="item.view">view</span></td>
                                     <td class="num" x-text="item.view || item.rows === null ? '' : (item.rowsExact ? '' : '~') + item.rows.toLocaleString()"></td>
                                     <td class="num" x-text="item.view ? '' : bytes(item.dataLength)"></td>
@@ -166,6 +217,7 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                         </tbody>
                         <tfoot x-show="tables.length">
                             <tr>
+                                <th></th>
                                 <th x-text="tables.length + ' tables'"></th>
                                 <th class="num" x-text="'~' + totalRows().toLocaleString()"></th>
                                 <th class="num" x-text="bytes(totalOf('dataLength'))"></th>
@@ -213,10 +265,19 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
 
                 <p class="notice" x-show="browse.error" x-text="browse.error"></p>
 
+                <div class="selection" x-show="selectedRows.length" x-transition>
+                    <span x-text="selectedRows.length + ' selected'"></span>
+                    <button type="button" class="link danger" @click="confirmDeleteRows()" :disabled="busy">Delete</button>
+                    <button type="button" class="link" @click="selectedRows = []">Clear</button>
+                </div>
+
                 <div class="table-wrap grid-wrap" :class="{ 'is-loading': rowsLoading }" x-show="browse.columns.length">
                     <table class="grid data">
                         <thead>
                             <tr>
+                                <th class="row-actions" x-show="rowsEditable()">
+                                    <input type="checkbox" :checked="browse.rows.length > 0 && selectedRows.length === browse.rows.length" @change="selectedRows = $event.target.checked ? browse.rows.map((_, i) => i) : []" aria-label="Select all rows on this page">
+                                </th>
                                 <template x-for="column in browse.columns" :key="column.name">
                                     <th :class="{ num: column.numeric }">
                                         <button type="button" class="sort" @click="toggleSort(column.name)" :title="column.type">
@@ -230,7 +291,11 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                         </thead>
                         <tbody>
                             <template x-for="(row, r) in browse.rows" :key="browse.offset + ':' + r">
-                                <tr>
+                                <tr :class="{ selected: selectedRows.includes(r) }">
+                                    <td class="row-actions" x-show="rowsEditable()">
+                                        <input type="checkbox" :value="r" x-model.number="selectedRows" aria-label="Select row">
+                                        <button type="button" class="link" @click="openEditor(r)" :disabled="busy">Edit</button>
+                                    </td>
                                     <template x-for="(cell, c) in row" :key="c">
                                         <td :class="cellClass(cell, browse.columns[c])" @click="openCell(r, c)" x-text="cellText(cell)"></td>
                                     </template>
@@ -376,6 +441,7 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                             <span class="badge" x-text="'#' + (result.index + 1)"></span>
                             <code class="result-sql" x-text="result.sql"></code>
                             <span class="muted small nowrap" x-text="'line ' + result.line + (result.ms !== undefined ? ' · ' + result.ms + ' ms' : '')"></span>
+                            <button type="button" class="button small" x-show="sqlResults.length === 1 && result.sets && result.sets.length === 1 && result.sets[0].columns" @click="exportQueryCsv()">Export CSV</button>
                         </div>
                         <p class="error-text" x-show="result.error" x-text="result.error"></p>
                         <template x-for="(set, s) in (result.sets || [])" :key="s">
@@ -414,10 +480,10 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
 
     <!-- Modal -->
     <div class="modal-backdrop" x-show="modal" x-transition.opacity @click.self="closeModal()" @keydown.escape.window="closeModal()">
-        <div class="modal" :class="{ wide: modal === 'cell' }" role="dialog" aria-modal="true" :aria-label="modalTitle" x-show="modal">
+        <div class="modal" :class="{ wide: ['cell', 'row'].includes(modal) }" role="dialog" aria-modal="true" :aria-label="modalTitle" x-show="modal">
             <header>
                 <h3 x-text="modalTitle"></h3>
-                <button type="button" class="link" @click="closeModal()" aria-label="Close">✕</button>
+                <button type="button" class="link" @click="closeModal()" :disabled="modalLocked()" aria-label="Close">✕</button>
             </header>
 
             <!-- Cell -->
@@ -450,6 +516,134 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                     <button type="button" class="button" @click="closeModal()">Cancel</button>
                     <button type="button" class="button danger-solid" @click="closeModal(); runSql(true)">Run anyway</button>
                 </footer>
+            </div>
+
+            <!-- Row editor -->
+            <form x-show="modal === 'row'" @submit.prevent="saveRow(false)" class="row-editor">
+                <p class="loading-line" x-show="editor.loading"><span class="spinner small"></span> Loading the row…</p>
+                <template x-for="field in editor.fields" :key="field.name">
+                    <div class="field" :class="{ generated: field.generated }">
+                        <div class="field-head">
+                            <label class="field-name mono" :for="'field-' + field.name" x-text="field.name"></label>
+                            <span class="field-type mono" x-text="field.type"></span>
+                            <span class="spacer"></span>
+                            <span class="muted small" x-show="field.generated">generated</span>
+                            <select class="field-mode" x-show="!field.generated && !editor.locked[field.name] && fieldModes(field).length > 1" x-model="editor.modes[field.name]" :aria-label="'How to set ' + field.name">
+                                <template x-for="mode in fieldModes(field)" :key="mode">
+                                    <option :value="mode" x-text="{ value: 'Value', null: 'NULL', default: 'Default' }[mode]" :selected="editor.modes[field.name] === mode"></option>
+                                </template>
+                            </select>
+                        </div>
+                        <template x-if="field.options && field.dataType === 'enum'">
+                            <select :id="'field-' + field.name" x-model="editor.texts[field.name]" x-show="editor.modes[field.name] === 'value'" :disabled="field.generated || editor.locked[field.name]">
+                                <template x-for="option in field.options" :key="option">
+                                    <option :value="option" x-text="option" :selected="editor.texts[field.name] === option"></option>
+                                </template>
+                            </select>
+                        </template>
+                        <template x-if="!(field.options && field.dataType === 'enum')">
+                            <textarea :id="'field-' + field.name" x-model="editor.texts[field.name]" x-show="editor.modes[field.name] === 'value'"
+                                      :rows="field.long || field.binary ? 5 : 1" :class="{ single: !field.long && !field.binary }"
+                                      :readonly="field.generated || editor.locked[field.name]" spellcheck="false"
+                                      :placeholder="field.binary ? 'base64' : ''"></textarea>
+                        </template>
+                        <p class="muted small field-note" x-show="editor.modes[field.name] === 'null'">NULL</p>
+                        <p class="muted small field-note" x-show="editor.modes[field.name] === 'default'" x-text="field.autoIncrement ? 'Next number (auto increment)' : 'Default' + (field.default !== null ? ': ' + field.default : '')"></p>
+                        <p class="muted small field-note" x-show="field.binary && editor.modes[field.name] === 'value' && !editor.locked[field.name]">Binary data, edited as base64.</p>
+                        <p class="notice small" x-show="editor.locked[field.name]">This value is too long to edit here, and is left as it is.</p>
+                    </div>
+                </template>
+                <footer class="spread" x-show="!editor.loading">
+                    <button type="button" class="button danger" x-show="editor.mode === 'edit'" @click="confirmDeleteRow()" :disabled="busy">Delete</button>
+                    <span class="spacer"></span>
+                    <button type="button" class="button" @click="closeModal()">Cancel</button>
+                    <button type="button" class="button" x-show="editor.mode === 'edit'" @click="saveRow(true)" :disabled="busy" :class="{ 'is-loading': action === 'duplicate' }">Save as new row</button>
+                    <button type="submit" class="button primary" :disabled="busy" :class="{ 'is-loading': action === 'save' }" x-text="editor.mode === 'edit' ? 'Save' : 'Insert'"></button>
+                </footer>
+            </form>
+
+            <!-- Danger -->
+            <div x-show="modal === 'danger'">
+                <p x-text="danger.message"></p>
+                <label x-show="danger.phrase" class="stack"><span>Type <code x-text="danger.phrase"></code> to confirm</span>
+                    <input type="text" x-model="danger.typed" autocomplete="off" spellcheck="false" @keydown.enter.prevent="runDanger()">
+                </label>
+                <footer>
+                    <button type="button" class="button" @click="closeModal()" :disabled="action === 'danger'">Cancel</button>
+                    <button type="button" class="button danger-solid" @click="runDanger()" :disabled="busy || (Boolean(danger.phrase) && danger.typed !== danger.phrase)" :class="{ 'is-loading': action === 'danger' }" x-text="danger.label"></button>
+                </footer>
+            </div>
+
+            <!-- Rename -->
+            <form x-show="modal === 'rename'" @submit.prevent="rename()">
+                <label class="stack">New name <input type="text" x-model="renameTo" required spellcheck="false" maxlength="64"></label>
+                <footer>
+                    <button type="button" class="button" @click="closeModal()">Cancel</button>
+                    <button type="submit" class="button primary" :disabled="busy || !renameTo.trim() || renameTo.trim() === table" :class="{ 'is-loading': action === 'rename' }">Rename</button>
+                </footer>
+            </form>
+
+            <!-- Maintenance results -->
+            <div x-show="modal === 'messages'">
+                <div class="table-wrap">
+                    <table class="grid">
+                        <thead><tr><th>Table</th><th>Type</th><th>Message</th></tr></thead>
+                        <tbody>
+                            <template x-for="(message, i) in messages" :key="i">
+                                <tr><td class="mono" x-text="message.table"></td><td x-text="message.type"></td><td x-text="message.text"></td></tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+                <footer><button type="button" class="button" @click="closeModal()">Close</button></footer>
+            </div>
+
+            <!-- Export -->
+            <form x-show="modal === 'export'" @submit.prevent="submitExport()">
+                <p class="muted small" x-text="exportOptions.tables.length ? 'Tables: ' + exportOptions.tables.join(', ') : 'Every table and view in ' + db + '.'"></p>
+                <fieldset>
+                    <legend>Include</legend>
+                    <label class="check"><input type="checkbox" x-model="exportOptions.structure"> Structure (CREATE TABLE, views, triggers)</label>
+                    <label class="check"><input type="checkbox" x-model="exportOptions.data"> Data (INSERT)</label>
+                </fieldset>
+                <label class="check"><input type="checkbox" x-model="exportOptions.gzip"> Compress (.sql.gz)</label>
+                <footer>
+                    <button type="button" class="button" @click="closeModal()">Cancel</button>
+                    <button type="submit" class="button primary" :disabled="!exportOptions.structure && !exportOptions.data">Download</button>
+                </footer>
+            </form>
+
+            <!-- Import -->
+            <div x-show="modal === 'import'">
+                <template x-if="!importJob">
+                    <form @submit.prevent="startImport()" class="stack-form">
+                        <p class="muted small">Run an <code>.sql</code> or <code>.sql.gz</code> file in <strong x-text="db"></strong>. Statements run in order; tables the file drops or replaces are replaced.</p>
+                        <input type="file" x-ref="importFile" accept=".sql,.gz,application/sql,application/gzip" required>
+                        <p class="muted small" x-text="'Up to ' + bytes(session.import ? session.import.maxBytes : 0) + '.'"></p>
+                        <footer>
+                            <button type="button" class="button" @click="closeModal()">Cancel</button>
+                            <button type="submit" class="button primary">Import</button>
+                        </footer>
+                    </form>
+                </template>
+                <template x-if="importJob">
+                    <div class="stack-form">
+                        <p><strong x-text="importJob.name"></strong></p>
+                        <div class="progress-bar" :class="{ failed: importJob.state === 'failed' }"><span :style="{ width: importPercent() + '%' }"></span></div>
+                        <p class="muted small" x-text="importStatus()"></p>
+                        <template x-if="importJob.state === 'failed' && importJob.error">
+                            <div class="result failed">
+                                <p class="error-text" x-text="'Line ' + importJob.error.line + ': ' + importJob.error.message"></p>
+                                <code class="failed-sql" x-text="importJob.error.sql"></code>
+                            </div>
+                        </template>
+                        <footer>
+                            <button type="button" class="button danger" x-show="!['done', 'failed', 'cancelled'].includes(importJob.state)" @click="cancelImport()">Stop</button>
+                            <button type="button" class="button" x-show="importJob.state === 'failed' && importJob.canSkip" @click="skipImport()">Skip this statement and continue</button>
+                            <button type="button" class="button primary" x-show="['done', 'failed', 'cancelled'].includes(importJob.state)" @click="closeImport()">Close</button>
+                        </footer>
+                    </div>
+                </template>
             </div>
         </div>
     </div>

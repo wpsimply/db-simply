@@ -96,6 +96,9 @@ final class Rows
             if ($this->isLong($column)) {
                 $long[$index] = count($columns) + count($long);
                 $select[] = sprintf('LEFT(%s, %d)', $quoted, $this->cellPreview);
+            } elseif ($column['dataType'] === 'bit') {
+                // BIT values are bytes on the wire; as numbers they read and edit.
+                $select[] = $quoted.' + 0';
             } else {
                 $select[] = $quoted;
             }
@@ -163,28 +166,13 @@ final class Rows
      */
     public function value(string $database, string $table, mixed $column, array $key): array
     {
-        $summary = $this->catalog->table($database, $table);
         $columns = array_column($this->catalog->columns($database, $table), null, 'name');
 
         if (! is_string($column) || ! isset($columns[$column])) {
             throw new UserError('Unknown column.');
         }
 
-        $rowKey = $summary['view'] ? null : Catalog::rowKey(array_values($columns), $this->catalog->indexes($database, $table));
-
-        if ($rowKey === null) {
-            throw new UserError('This table has no primary or unique key, so a single row cannot be picked out of it.');
-        }
-
-        $conditions = [];
-
-        foreach ($rowKey as $name) {
-            if (! array_key_exists($name, $key)) {
-                throw new UserError('The row reference is incomplete.');
-            }
-
-            $conditions[] = Identifier::quote($name).' = '.$this->client->quote(Codec::decode($key[$name]));
-        }
+        $where = RowKey::of($this->catalog, $database, $table)->where($this->client, $key);
 
         $quoted = Identifier::quote($column);
         $rows = $this->client->selectRows(sprintf(
@@ -192,7 +180,7 @@ final class Rows
             $quoted,
             $this->valuePreview,
             Identifier::qualified($database, $table),
-            implode(' AND ', $conditions),
+            $where,
         ));
 
         if (count($rows) !== 1) {
@@ -211,6 +199,15 @@ final class Rows
             'format' => $described['format'],
             'pretty' => $described['pretty'],
         ];
+    }
+
+    /**
+     * The WHERE clause the browser's filters and search stand for, or "",
+     * for exporting exactly the rows a page is showing.
+     */
+    public function filterCondition(string $database, string $table, mixed $filters, string $search): string
+    {
+        return $this->where(array_column($this->catalog->columns($database, $table), null, 'name'), $filters, $search);
     }
 
     /**

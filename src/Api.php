@@ -15,7 +15,13 @@ namespace DbAdmin;
  */
 final class Api
 {
-    private const array READS = ['session', 'databases', 'tables', 'structure', 'rows', 'value'];
+    private const array READS = ['session', 'databases', 'tables', 'structure', 'rows', 'value', 'row', 'fields'];
+
+    /**
+     * Changes a read-only session may not make. (The console checks its
+     * statements itself.)
+     */
+    private const array WRITES = ['insert', 'update', 'delete', 'table'];
 
     private ?Client $client = null;
 
@@ -51,6 +57,10 @@ final class Api
 
             if (! $this->session->verifyCsrf($csrfToken)) {
                 throw new UserError('Your session token is out of date. Reload the page.', 419);
+            }
+
+            if ($grant['readonly'] && in_array($action, self::WRITES, true)) {
+                throw new UserError('This session is read-only.', 403);
             }
         }
 
@@ -116,6 +126,39 @@ final class Api
 
                 return $this->rows($catalog)->value($db, $table($db), $query['column'] ?? null, $this->jsonParameter($query['key'] ?? null));
 
+            case 'fields':
+                $db = $database();
+
+                return $this->editor($catalog)->fields($db, $table($db));
+
+            case 'row':
+                $db = $database();
+
+                return $this->editor($catalog)->row($db, $table($db), $this->jsonParameter($query['key'] ?? null));
+
+            case 'insert':
+                $db = $database();
+
+                return $this->editor($catalog)->insert($db, $table($db), $body['values'] ?? null);
+
+            case 'update':
+                $db = $database();
+
+                return $this->editor($catalog)->update($db, $table($db), $body['key'] ?? null, $body['values'] ?? null);
+
+            case 'delete':
+                $db = $database();
+
+                return $this->editor($catalog)->delete($db, $table($db), $body['keys'] ?? null);
+
+            case 'table':
+                return (new TableOperations($this->client($grant), $catalog))->run(
+                    $database(),
+                    $body['tables'] ?? null,
+                    (string) ($body['operation'] ?? ''),
+                    $body['name'] ?? null,
+                );
+
             case 'query':
                 $sql = $body['sql'] ?? null;
 
@@ -162,6 +205,9 @@ final class Api
                 'cellPreview' => $this->config->int('limits.cell_preview'),
             ],
             'operators' => Rows::OPERATORS,
+            'import' => [
+                'maxBytes' => $this->config->int('import.max_bytes'),
+            ],
         ];
     }
 
@@ -181,6 +227,15 @@ final class Api
         $hidden = $this->config->get('hidden_databases');
 
         return new Catalog($this->client($grant), is_array($hidden) ? array_values(array_filter($hidden, is_string(...))) : []);
+    }
+
+    private function editor(Catalog $catalog): Editor
+    {
+        return new Editor(
+            $this->client ?? throw new UserError('Not connected.', 500),
+            $catalog,
+            $this->config->int('limits.value_preview'),
+        );
     }
 
     private function rows(Catalog $catalog): Rows

@@ -87,6 +87,11 @@ final class Config
                 'token_dir' => $root.'/storage/sso-tokens',
                 'token_ttl' => 60,
             ],
+            'import' => [
+                'dir' => $root.'/storage/imports',
+                'max_bytes' => 2147483648,
+                'budget' => 20,
+            ],
             'session' => [
                 'save_path' => $root.'/storage/sessions',
                 'name' => 'DbAdminSession',
