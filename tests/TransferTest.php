@@ -19,6 +19,14 @@ final class TransferTest extends TestCase
         self::assertSame("a,\"b,c\",\"say \"\"hi\"\"\",,\"\",\"x\ny\"\r\n", Export::csvLine(['a', 'b,c', 'say "hi"', null, '', "x\ny"]));
     }
 
+    public function testCsvCanEscapeWhatASpreadsheetWouldRun(): void
+    {
+        $fields = ['=1+1', '@SUM(A1)', '+x', '-2+3', "\tx", '-5', '+1.5', '1e3', 'a=b', ''];
+
+        self::assertSame("'=1+1,'@SUM(A1),'+x,'-2+3,'\tx,-5,+1.5,1e3,a=b,\"\"\r\n", Export::csvLine($fields, true));
+        self::assertSame("=1+1,@SUM(A1),+x,-2+3,\tx,-5,+1.5,1e3,a=b,\"\"\r\n", Export::csvLine($fields), 'Off, values are written as they are.');
+    }
+
     public function testDefinersAreLeftOut(): void
     {
         self::assertSame(
@@ -157,6 +165,29 @@ final class TransferTest extends TestCase
 
         self::assertThrows(UserError::class, fn () => $export->csvQuery($this->database(), 'DELETE FROM t'), 'reads');
         self::assertThrows(UserError::class, fn () => $export->csvQuery($this->database(), 'SELECT 1; SELECT 2'), 'one statement');
+    }
+
+    public function testAReadOnlySessionCannotWriteThroughAnExportedQuery(): void
+    {
+        $this->client(
+            'CREATE TABLE t (id INT PRIMARY KEY)',
+            'CREATE FUNCTION sneak() RETURNS INT MODIFIES SQL DATA BEGIN INSERT INTO t VALUES (1); RETURN 1; END',
+        );
+
+        // A SELECT passes the statement check, but the function it calls
+        // writes: the read-only connection is what stops it.
+        $target = $this->target();
+        $readOnly = (new \DbSimply\Connection($this->config()))->open(['user' => $target['user'], 'password' => $target['password'], 'readonly' => true]);
+        $export = new Export($readOnly, $this->catalog($readOnly), static function (string $bytes): void {});
+
+        try {
+            self::assertThrows(UserError::class, fn () => $export->csvQuery($this->database(), 'SELECT sneak()'));
+            self::assertThrows(UserError::class, fn () => $readOnly->query('INSERT INTO t VALUES (2)'));
+        } finally {
+            $readOnly->close();
+        }
+
+        self::assertSame('0', $this->client?->value('SELECT COUNT(*) FROM t'));
     }
 
     /**

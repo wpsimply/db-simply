@@ -10,6 +10,7 @@ use DbSimply\Config;
 use DbSimply\Env;
 use DbSimply\Formatter;
 use DbSimply\Identifier;
+use DbSimply\Serialized;
 use DbSimply\Session;
 use DbSimply\TokenStore;
 use DbSimply\UserError;
@@ -101,6 +102,52 @@ final class UnitTest extends TestCase
         self::assertThrows(UserError::class, fn () => (new TokenStore(self::tempDir(), 60))->consume('../'.str_repeat('a', 40)));
     }
 
+    public function testABoundTokenIsSpentOnlyByTheBrowserHoldingItsProof(): void
+    {
+        $dir = self::tempDir();
+        $proof = bin2hex(random_bytes(32));
+        $issue = static function (array $payload) use ($dir): string {
+            $token = bin2hex(random_bytes(32));
+            file_put_contents($dir.'/'.$token, json_encode(['user' => 'acct', ...$payload]));
+
+            return $token;
+        };
+
+        $store = new TokenStore($dir, 60);
+
+        self::assertSame('acct', $store->consume($issue(['binding' => TokenStore::binding($proof)]), $proof)['user']);
+
+        // Someone else's link, opened in a browser without the proof, or with another one.
+        $foreign = $issue(['binding' => TokenStore::binding($proof)]);
+        self::assertThrows(UserError::class, fn () => $store->consume($foreign), 'another browser');
+        self::assertThrows(UserError::class, fn () => $store->consume($foreign, $proof), 'already been used');
+        self::assertThrows(UserError::class, fn () => $store->consume($issue(['binding' => TokenStore::binding($proof)]), bin2hex(random_bytes(32))), 'another browser');
+        self::assertThrows(UserError::class, fn () => $store->consume($issue(['binding' => ['x']]), $proof), 'another browser');
+
+        // Unbound tokens work until binding is required.
+        self::assertSame('acct', $store->consume($issue([]))['user']);
+        self::assertThrows(UserError::class, fn () => (new TokenStore($dir, 60, true))->consume($issue([]), $proof), 'not issued to a browser');
+        self::assertSame([], glob($dir.'/*'));
+    }
+
+    public function testSignOnStartsWithAProofOnlyThisBrowserHolds(): void
+    {
+        $dir = self::tempDir();
+        $session = new Session(Config::fromArray($dir, ['session' => ['save_path' => $dir, 'secure' => false]]));
+
+        self::assertSame(null, $session->signOnProof());
+
+        $binding = $session->startSignOn();
+        $proof = $session->signOnProof();
+
+        self::assertTrue($proof !== null && TokenStore::binding($proof) === $binding);
+        self::assertTrue(! str_contains($binding, (string) $proof), 'The panel sees the hash, never the proof.');
+
+        $_COOKIE['DbSimplySessionSignOn'] = 'not a proof';
+        self::assertSame(null, $session->signOnProof());
+        unset($_COOKIE['DbSimplySessionSignOn']);
+    }
+
     public function testExpiredTokenIsRejectedAndRemoved(): void
     {
         $dir = self::tempDir();
@@ -128,6 +175,21 @@ final class UnitTest extends TestCase
         self::assertSame(null, $session->grant());
 
         session_write_close();
+    }
+
+    public function testSecureSessionCookiesCannotBeSetFromASiblingSubdomain(): void
+    {
+        $dir = self::tempDir();
+        $session = new Session(Config::fromArray($dir, ['session' => ['save_path' => $dir, 'secure' => true]]));
+
+        $session->signIn(['user' => 'acct', 'password' => 'hunter2', 'database' => null, 'label' => 'Acme', 'readonly' => false]);
+
+        self::assertSame('__Host-DbSimplySession', session_name());
+        self::assertTrue(isset($_COOKIE['__Host-DbSimplySessionKey']));
+        self::assertSame('', session_get_cookie_params()['domain']);
+
+        session_write_close();
+        session_name('DbSimplySession');
     }
 
     public function testRowKeyPrefersThePrimaryKeyThenANotNullUniqueIndex(): void
@@ -160,5 +222,21 @@ final class UnitTest extends TestCase
         self::assertSame('serialized', $described['format']);
         self::assertTrue(str_contains((string) $described['pretty'], '"__class": "ArrayObject"'));
         self::assertSame('json', $formatter->describe('{"a":1}')['format']);
+    }
+
+    public function testSerializedValuesAreReadWithoutUnserialize(): void
+    {
+        self::assertSame(
+            [['__class' => 'Plugin_Settings', 'public' => 1, 'kept' => [1.5, true], 'secret' => 'a\x00b']],
+            Serialized::decode('O:15:"Plugin_Settings":3:{s:6:"public";i:1;s:7:"'."\0*\0".'kept";a:2:{i:0;d:1.5;i:1;b:1;}s:23:"'."\0Plugin_Settings\0".'secret";s:3:"a'."\0".'b";}'),
+        );
+        self::assertSame([false], Serialized::decode('b:0;'));
+        self::assertSame([null], Serialized::decode('N;'));
+        self::assertSame([['a', '(reference to value 2)']], Serialized::decode('a:2:{i:0;s:1:"a";i:1;R:2;}'));
+        self::assertSame([['__class' => 'Legacy', '__data' => 'x:1']], Serialized::decode('C:6:"Legacy":3:{x:1}'));
+
+        self::assertSame(null, Serialized::decode('s:5:"abc";'), 'A wrong length is not serialized data.');
+        self::assertSame(null, Serialized::decode('a:1:{i:0;N;}trailing'));
+        self::assertSame(null, Serialized::decode(str_repeat('a:1:{i:0;', 100).'N;'.str_repeat('}', 100)), 'Nesting is limited.');
     }
 }

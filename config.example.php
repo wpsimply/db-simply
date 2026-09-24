@@ -32,6 +32,11 @@ return [
     'sso' => [
         'token_dir' => __DIR__.'/storage/sso-tokens',
         'token_ttl' => 60,
+        // The panel page that issues a token bound to the browser:
+        // sso.php?start sends the browser there with ?binding=<hash>.
+        'issue_url' => null,
+        // Once the panel binds every token, refuse any token that is not.
+        'require_binding' => false,
     ],
 
     /*
@@ -75,6 +80,14 @@ return [
         'exact_count' => 100000,
     ],
 
-    // Decode PHP-serialized values for display. Classes are never instantiated.
+    // Decode PHP-serialized values for display. They are read without
+    // unserialize(), so classes are never instantiated.
     'decode_serialized' => true,
+
+    /*
+     * Prefix CSV values that a spreadsheet would run as a formula (=, +, -,
+     * @) with a quote, for exports opened in Excel or Sheets. Numbers are
+     * left alone. Off by default, so a CSV holds exactly what the database does.
+     */
+    'csv_escape_formulas' => false,
 ];

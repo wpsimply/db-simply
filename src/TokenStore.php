@@ -16,23 +16,44 @@ namespace DbSimply;
  * The server the session connects to is never part of the token: it comes
  * from the configuration alone.
  *
+ * A token can also be bound to the browser that asked for it. Sign-on then
+ * starts here: sso.php?start gives the browser a random proof in a cookie
+ * and sends it to the panel with the proof's hash, the panel writes that
+ * hash into the token as "binding", and the token is spent only by a browser
+ * holding the proof. Someone who sends another person a link issued to
+ * themselves can then not sign that person into their own account.
+ *
  * File contents (JSON):
  *   user      required  database user to sign in as
  *   password  optional  its password
  *   database  optional  database to open straight away
  *   label     optional  name shown in the header
  *   readonly  optional  true to allow reading only
+ *   binding   optional  the hash sso.php?start sent to the panel
  */
 final class TokenStore
 {
-    public function __construct(private readonly string $directory, private readonly int $ttl) {}
+    public function __construct(
+        private readonly string $directory,
+        private readonly int $ttl,
+        private readonly bool $requireBinding = false,
+    ) {}
+
+    /**
+     * The binding a panel writes into a token for the given proof.
+     */
+    public static function binding(string $proof): string
+    {
+        return hash('sha256', $proof);
+    }
 
     /**
      * Spend a token and return the session it grants.
      *
+     * @param  ?string  $proof  the sign-on proof this browser holds, if any
      * @return array{user: string, password: ?string, database: ?string, label: string, readonly: bool}
      */
-    public function consume(string $token): array
+    public function consume(string $token, ?string $proof = null): array
     {
         if (preg_match('/^[a-f0-9]{32,128}$/', $token) !== 1) {
             throw new UserError('Invalid sign-on link.', 403);
@@ -60,6 +81,17 @@ final class TokenStore
 
         if (! is_array($payload)) {
             throw new UserError('Invalid sign-on link.', 403);
+        }
+
+        $binding = $payload['binding'] ?? null;
+
+        if ($binding === null && $this->requireBinding) {
+            throw new UserError('This sign-on link was not issued to a browser. Open DB Simply again from your control panel.', 403);
+        }
+
+        // Spent either way: a link meant for another browser is not tried twice.
+        if ($binding !== null && (! is_string($binding) || $proof === null || ! hash_equals($binding, self::binding($proof)))) {
+            throw new UserError('This sign-on link was issued to another browser. Open DB Simply again from your control panel.', 403);
         }
 
         return self::validate($payload);

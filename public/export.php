@@ -51,6 +51,7 @@ try {
     $catalog = new Catalog($client, is_array($hidden) ? array_values(array_filter($hidden, is_string(...))) : []);
     $database = $catalog->database($_POST['db'] ?? null);
     $gzip = ($_POST['gzip'] ?? '') === '1';
+    $escapeFormulas = (bool) $config->get('csv_escape_formulas');
     $stamp = gmdate('Ymd-His');
 
     switch ($_POST['format'] ?? '') {
@@ -78,7 +79,7 @@ try {
 
             if ($sql !== '') {
                 $download = new Download(Download::filename($database.'-query-'.$stamp, 'csv'), 'text/csv; charset=utf-8', $gzip);
-                (new Export($client, $catalog, $download->write(...)))->csvQuery($database, $sql);
+                (new Export($client, $catalog, $download->write(...), $escapeFormulas))->csvQuery($database, $sql);
                 break;
             }
 
@@ -88,7 +89,7 @@ try {
             $where = $rows->filterCondition($database, $table, is_array($filters) ? $filters : [], (string) ($_POST['q'] ?? ''));
 
             $download = new Download(Download::filename($table.'-'.$stamp, 'csv'), 'text/csv; charset=utf-8', $gzip);
-            (new Export($client, $catalog, $download->write(...)))->csvTable($database, $table, $where);
+            (new Export($client, $catalog, $download->write(...), $escapeFormulas))->csvTable($database, $table, $where);
             break;
 
         default:

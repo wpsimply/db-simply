@@ -37,6 +37,8 @@ final class Env
         'DB_SIMPLY_HIDDEN_DATABASES' => ['hidden_databases', 'list'],
         'DB_SIMPLY_TOKEN_DIR' => ['sso.token_dir', 'string'],
         'DB_SIMPLY_TOKEN_TTL' => ['sso.token_ttl', 'int'],
+        'DB_SIMPLY_SSO_ISSUE_URL' => ['sso.issue_url', 'string'],
+        'DB_SIMPLY_SSO_REQUIRE_BINDING' => ['sso.require_binding', 'bool'],
         'DB_SIMPLY_IMPORT_DIR' => ['import.dir', 'string'],
         'DB_SIMPLY_IMPORT_MAX_BYTES' => ['import.max_bytes', 'int'],
         'DB_SIMPLY_IMPORT_BUDGET' => ['import.budget', 'int'],
@@ -51,6 +53,7 @@ final class Env
         'DB_SIMPLY_QUERY_ROWS' => ['limits.query_rows', 'int'],
         'DB_SIMPLY_EXACT_COUNT' => ['limits.exact_count', 'int'],
         'DB_SIMPLY_DECODE_SERIALIZED' => ['decode_serialized', 'bool'],
+        'DB_SIMPLY_CSV_ESCAPE_FORMULAS' => ['csv_escape_formulas', 'bool'],
     ];
 
     /**

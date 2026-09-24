@@ -19,7 +19,7 @@ final class Connection
     public function __construct(private readonly Config $config) {}
 
     /**
-     * @param  array{user: string, password: ?string}  $grant
+     * @param  array{user: string, password: ?string, readonly?: bool}  $grant
      */
     public function open(array $grant): Client
     {
@@ -65,6 +65,15 @@ final class Connection
             );
 
             $mysqli->set_charset('utf8mb4');
+
+            // A read-only session is held to read-only transactions from the
+            // moment it connects, whatever path its statements take: the
+            // console's checks, a query exported as CSV, or anything added
+            // later. A stored function called from a SELECT cannot write
+            // either.
+            if (($grant['readonly'] ?? false) === true) {
+                $mysqli->query('SET SESSION TRANSACTION READ ONLY');
+            }
         } catch (mysqli_sql_exception $e) {
             // Access denied: the panel's credentials no longer work, which a
             // fresh sign-on from the panel repairs.

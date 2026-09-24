@@ -4,7 +4,7 @@ A small, self-hosted web UI for MariaDB and MySQL, built to sit next to a hostin
 
 - Databases and tables with row counts, sizes, engine, collation and overhead
 - Browse any table page by page: sort by any column, filter with conditions, search every text column; long and binary values are shown safely, and opened in full on click
-- JSON and PHP-serialized values (WordPress options and meta) are decoded for reading; classes are never instantiated
+- JSON and PHP-serialized values (WordPress options and meta) are decoded for reading, without `unserialize()`; classes are never instantiated
 - Edit, insert, copy and delete rows. Rows are always picked out by their primary or unique key, and every change touches one row per key at most
 - Structure: columns, indexes, foreign keys, triggers and the `CREATE` statement, and changing it: add, change and drop columns, indexes and foreign keys, table options, new tables. Every change shows the statement it will run first
 - Stored procedures and functions, triggers, events and views: list them, show their definitions, open them in the SQL editor to change them, drop them
@@ -76,59 +76,73 @@ The settings that matter:
 | `DB_SIMPLY_DB_HOST`, `DB_SIMPLY_DB_PORT` | The server every session connects to. |
 | `DB_SIMPLY_DB_SOCKET` | A Unix socket to use instead of host and port. |
 | `DB_SIMPLY_DB_SSL`, `DB_SIMPLY_DB_SSL_CA`, `DB_SIMPLY_DB_SSL_VERIFY` | TLS to the server. |
-| `DB_SIMPLY_HIDDEN_DATABASES` | Databases never listed or opened, comma separated. Defaults to the system schemas. |
+| `DB_SIMPLY_HIDDEN_DATABASES` | Databases never listed or opened in the browser, comma separated. Defaults to the system schemas. This tidies the list; it is not access control, see the security notes. |
 | `DB_SIMPLY_TOKEN_DIR` | Where the control panel drops sign-on tokens. Defaults to `storage/sso-tokens`. |
 | `DB_SIMPLY_TOKEN_TTL` | Seconds a token stays valid. Default 60. |
+| `DB_SIMPLY_SSO_ISSUE_URL` | The panel page `sso.php?start` sends the browser to, for a token bound to it. See below. |
+| `DB_SIMPLY_SSO_REQUIRE_BINDING` | `true` refuses tokens that are not bound to a browser. Default `false`. |
 | `DB_SIMPLY_PANEL_URL` | Linked from the signed-out page. |
 | `DB_SIMPLY_SESSION_SECURE` | Keep `true` in production; `false` only for local HTTP. |
 | `DB_SIMPLY_IMPORT_MAX_BYTES` | The largest file an import accepts. Default 2 GB. A gzipped file may decompress to 20 times this. |
 | `DB_SIMPLY_IMPORT_BUDGET` | Seconds each import request runs statements before it reports progress. Default 20; keep it well under the web server's timeout. |
+| `DB_SIMPLY_CSV_ESCAPE_FORMULAS` | `true` prefixes a quote to CSV values a spreadsheet would run as a formula (`=`, `+`, `-`, `@`), for exports opened in Excel or Sheets. Numbers are left alone. Default `false`, so a CSV holds exactly what the database does. |
 
 See [`.env.example`](.env.example) for all of them.
 
 ## Signing users in
 
-There is no login form. Your control panel authorises the user, writes a token file and redirects them:
+There is no login form. Your control panel authorises the user, writes a token file and redirects them. Each token is bound to the browser that asked for it, so a link can only be used by the person it was issued to:
 
-1. Generate a random token: 32–64 bytes, hex-encoded.
-2. Write `<token-dir>/<token>` containing JSON, readable by the PHP-FPM pool:
+1. The panel's "Open database" button sends the browser to `https://db.example.com/sso.php?start`, with any parameters the panel needs to know which account is meant (`&account=42`).
+2. DB Simply gives the browser a random proof in a cookie and sends it on to `DB_SIMPLY_SSO_ISSUE_URL` with those parameters and `binding=<hash of the proof>`.
+3. The panel checks that the user is signed in to the panel and that the account is theirs, then writes a token:
+   1. Generate a random token: 32–64 bytes, hex-encoded.
+   2. Write `<token-dir>/<token>` containing JSON, readable by the PHP-FPM pool:
 
-   ```json
-   {
-     "user": "acct42",
-     "password": "…",
-     "database": "acct42_shop",
-     "label": "example.com",
-     "readonly": false
-   }
-   ```
+      ```json
+      {
+        "user": "acct42",
+        "password": "…",
+        "database": "acct42_shop",
+        "label": "example.com",
+        "readonly": false,
+        "binding": "<the binding it was sent>"
+      }
+      ```
 
-   | Field | |
-   | --- | --- |
-   | `user` | Required. The database user to connect as. |
-   | `password` | Its password. |
-   | `database` | Optional: the database to open. |
-   | `label` | Optional: shown in the header. |
-   | `readonly` | Optional: `true` allows reading only. |
+      | Field | |
+      | --- | --- |
+      | `user` | Required. The database user to connect as. |
+      | `password` | Its password. |
+      | `database` | Optional: the database to open. |
+      | `label` | Optional: shown in the header. |
+      | `readonly` | Optional: `true` allows reading only. |
+      | `binding` | The `binding` parameter, exactly as received. The token is then spent only by the browser holding the proof. |
 
-3. Redirect the user to `https://db.example.com/sso.php?token=<token>`.
+4. The panel redirects the browser to `https://db.example.com/sso.php?token=<token>`. Never show the link or let it be copied.
 
-The token is spent on first use and expires after `DB_SIMPLY_TOKEN_TTL` seconds either way. The token never names a server: where the connection goes is configuration only.
+The token is spent on first use, whoever opens it, and expires after `DB_SIMPLY_TOKEN_TTL` seconds either way. The token never names a server: where the connection goes is configuration only.
 
-[`examples/issue-token.php`](examples/issue-token.php) shows the panel side.
+Without the binding, anyone given a link can open it, and whoever issued it can sign someone else into their own account. A token without `binding` is still accepted, so a panel can move to bound tokens at its own pace; once it binds every token, set `DB_SIMPLY_SSO_REQUIRE_BINDING=true` to refuse any that are not.
+
+[`examples/issue-token.php`](examples/issue-token.php) shows the panel side. If it is reached without a `binding`, it sends the browser to `sso.php?start` first, so the panel's existing button can keep pointing at it.
 
 ## Security notes
 
 - **Scope the database user.** What a session can reach is exactly what its user's privileges allow. Give each account a user with privileges on its own databases only, and no global privileges such as `FILE`, `PROCESS` or `SUPER`.
 - The password is kept in the server-side session encrypted, under a key held only in a cookie of its own. The session file alone does not reveal it.
 - `LOAD DATA LOCAL INFILE` is switched off on every connection, so a query cannot read files the web server can see.
-- Read-only sessions refuse any statement that is not a read, and run on the server in read-only transactions as well. They cannot edit rows, change structure, drop objects, run table operations or import.
+- Read-only sessions refuse any statement that is not a read, and every connection they open is held to read-only transactions on the server as well, so a stored function called from a `SELECT` cannot write either. They cannot edit rows, change structure, drop objects, run table operations or import.
+- Hidden databases are left out of the lists and cannot be opened in the browser, but the SQL console reaches whatever the user's privileges allow. Keep a database from a user by not granting it, not by hiding it.
 - Structure changes are built from checked parts, never from text the browser sends: types come from a fixed list, lengths must be numbers, names are quoted, values are quoted literals, and the only default expression is `CURRENT_TIMESTAMP`. Anything else is written in the SQL editor, where it is plain to see.
 - The process list shows only the signed-in user's own connections, and only those can be stopped.
-- Find and replace never instantiates anything it finds: serialized values are rewritten by reading the format itself, not with `unserialize()`. Rows are changed only through their row key, a table without one is left alone, and the key columns themselves are never rewritten.
+- Nothing read from the database is ever passed to `unserialize()`. Serialized values are shown, and rewritten by find and replace, by reading the format itself, so nothing in them is instantiated.
+- A CSV export holds values exactly as stored, so a value such as `=HYPERLINK(…)` is a live formula when the file is opened in a spreadsheet. Set `DB_SIMPLY_CSV_ESCAPE_FORMULAS=true` if exports are opened that way.
+- Find and replace changes rows only through their row key, a table without one is left alone, and the key columns themselves are never rewritten.
 - Imports are kept in `storage/imports` while they run, readable by the pool user only, and belong to the session that started them. Finished and cancelled imports are deleted at once, abandoned ones after a day.
 - Dumps leave `DEFINER` clauses out, so views and triggers import as the importing user. On MySQL with binary logging, creating a trigger needs `SUPER` unless the server sets `log_bin_trust_function_creators = 1`.
-- Tokens are single-use and short-lived. Pages are sent with `Referrer-Policy: no-referrer`, so the token URL doesn't leak to other sites.
+- Tokens are single-use and short-lived, and bound to the browser that asked for them. Pages are sent with `Referrer-Policy: no-referrer`, so the token URL doesn't leak to other sites.
+- Over HTTPS the session cookies carry the `__Host-` prefix and no domain, so a site on a sibling subdomain (another account's, on a shared server) cannot plant a session in the user's browser.
 - Every change needs the session's CSRF token. Sessions end after `DB_SIMPLY_SESSION_IDLE_TIMEOUT` seconds of inactivity, or after `DB_SIMPLY_SESSION_LIFETIME` seconds regardless.
 - The Content-Security-Policy allows scripts only from this origin. Alpine.js needs `'unsafe-eval'` to evaluate its directives. No directive is ever built from database data, and values are only ever rendered as text.
 

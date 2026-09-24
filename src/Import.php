@@ -238,6 +238,9 @@ final class Import
             throw new UserError('The file could not be opened.');
         }
 
+        // Readable by the pool user only, like the upload it comes from.
+        chmod($sql, 0600);
+
         $written = 0;
 
         try {
@@ -407,8 +410,10 @@ final class Import
         $file = $this->path($state['id'], 'json');
         $temporary = $file.'.'.bin2hex(random_bytes(4));
 
-        file_put_contents($temporary, json_encode($state, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+        // Restricted before anything is written to it, not after.
+        touch($temporary);
         chmod($temporary, 0600);
+        file_put_contents($temporary, json_encode($state, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
         rename($temporary, $file);
     }
 

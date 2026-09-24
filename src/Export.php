@@ -42,6 +42,7 @@ final class Export
         private readonly Client $client,
         private readonly Catalog $catalog,
         private readonly Closure $write,
+        private readonly bool $escapeFormulas = false,
     ) {}
 
     /**
@@ -179,12 +180,12 @@ final class Export
             throw new UserError('That statement returns no rows to export.');
         }
 
-        $this->write(self::csvLine(array_map(static fn (object $field): string => (string) $field->name, $result->fetch_fields())));
+        $this->write(self::csvLine(array_map(static fn (object $field): string => (string) $field->name, $result->fetch_fields()), $this->escapeFormulas));
 
         $buffer = '';
 
         while (($row = $result->fetch_row()) !== null && $row !== false) {
-            $buffer .= self::csvLine($row);
+            $buffer .= self::csvLine($row, $this->escapeFormulas);
 
             if (strlen($buffer) >= 65536) {
                 $this->write($buffer);
@@ -200,13 +201,22 @@ final class Export
      * One CSV line: fields quoted when they need to be, NULL as an empty
      * unquoted field and an empty string as "".
      *
+     * Escaping formulas prefixes a quote to a value a spreadsheet would run
+     * as a formula (=1+1, @SUM(…), -2+3, a leading tab or CR), so opening the
+     * file cannot run what someone stored in the database. Numbers, negative
+     * ones included, are left as they are.
+     *
      * @param  list<?string>  $fields
      */
-    public static function csvLine(array $fields): string
+    public static function csvLine(array $fields, bool $escapeFormulas = false): string
     {
-        return implode(',', array_map(static function (?string $field): string {
+        return implode(',', array_map(static function (?string $field) use ($escapeFormulas): string {
             if ($field === null) {
                 return '';
+            }
+
+            if ($escapeFormulas && $field !== '' && strpbrk($field[0], "=+-@\t\r") !== false && ! is_numeric($field)) {
+                $field = "'".$field;
             }
 
             return $field === '' || strpbrk($field, ",\"\r\n") !== false ? '"'.str_replace('"', '""', $field).'"' : $field;
