@@ -920,7 +920,7 @@ document.addEventListener('alpine:init', () => {
             return modes;
         },
 
-        async openEditor(r) {
+        async openEditor(r, focus = null) {
             const key = this.rowKey(this.browse.rows[r]);
 
             if (key === null) {
@@ -946,6 +946,10 @@ document.addEventListener('alpine:init', () => {
                 });
 
                 this.editor = { ...this.editor, loading: false, fields: data.fields, texts, modes, locked, original: { texts: { ...texts }, modes: { ...modes } } };
+
+                if (focus !== null) {
+                    this.$nextTick(() => document.getElementById('field-' + focus)?.focus());
+                }
             } catch (error) {
                 this.modal = null;
                 this.fail(error);
@@ -2018,6 +2022,67 @@ document.addEventListener('alpine:init', () => {
             }
 
             return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`;
+        },
+    }));
+
+    // The database crumb in the top bar; reads databases and db from dbSimply.
+    Alpine.data('dbPicker', () => ({
+        open: false,
+        query: '',
+        active: 0,
+
+        matches() {
+            const query = this.query.trim().toLowerCase();
+            return query ? this.databases.filter((database) => database.name.toLowerCase().includes(query)) : this.databases;
+        },
+
+        toggle() {
+            if (this.open) {
+                this.close();
+                return;
+            }
+
+            this.query = '';
+            this.active = Math.max(0, this.databases.findIndex((database) => database.name === this.db));
+            this.open = true;
+            this.$nextTick(() => {
+                this.$refs.filter.focus();
+                this.scrollToActive();
+            });
+        },
+
+        close(refocus = false) {
+            this.open = false;
+
+            if (refocus) {
+                this.$refs.trigger.focus();
+            }
+        },
+
+        move(step) {
+            const count = this.matches().length;
+
+            if (count > 0) {
+                this.active = (this.active + step + count) % count;
+                this.$nextTick(() => this.scrollToActive());
+            }
+        },
+
+        scrollToActive() {
+            this.$refs.list.children[this.active]?.scrollIntoView({ block: 'nearest' });
+        },
+
+        choose(database) {
+            if (!database) {
+                return;
+            }
+
+            this.close(true);
+
+            if (database.name !== this.db) {
+                this.db = database.name;
+                this.selectDatabase();
+            }
         },
     }));
 });

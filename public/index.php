@@ -49,17 +49,26 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
             <img src="<?= $e($asset('assets/icon.svg')) ?>" alt="" width="22" height="22">
             <strong><?= $e($title) ?></strong>
             <span class="target" x-text="session.label"></span>
+            <div class="menu db-picker" x-data="dbPicker" @click.outside="close()" @keydown.escape.stop="close(true)" x-show="databases.length">
+                <button type="button" class="db-crumb" x-ref="trigger" @click="toggle()" :disabled="busy" aria-haspopup="listbox" :aria-expanded="open ? 'true' : 'false'" title="Change database">
+                    <span x-text="db || 'Choose a database'"></span>
+                    <span class="caret" aria-hidden="true">▾</span>
+                </button>
+                <div class="menu-items db-menu" x-show="open" x-transition.opacity>
+                    <input type="search" x-ref="filter" x-model="query" @input="active = 0" @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)" @keydown.enter.prevent="choose(matches()[active])"
+                        placeholder="Filter databases" aria-label="Filter databases" autocomplete="off" spellcheck="false">
+                    <ul role="listbox" x-ref="list" aria-label="Databases">
+                        <template x-for="(database, i) in matches()" :key="database.name">
+                            <li role="option" :aria-selected="database.name === db ? 'true' : 'false'" :class="{ active: i === active, current: database.name === db }"
+                                @click="choose(database)" @mousemove="active = i" x-text="database.name"></li>
+                        </template>
+                    </ul>
+                    <p class="empty" x-show="matches().length === 0">No databases match.</p>
+                </div>
+            </div>
             <span class="pill" x-show="session.readonly">Read-only</span>
         </div>
         <div class="topbar-actions">
-            <label class="db-select">
-                <span class="sr-only">Database</span>
-                <select x-model="db" @change="selectDatabase()" :disabled="busy || databases.length === 0">
-                    <template x-for="database in databases" :key="database.name">
-                        <option :value="database.name" x-text="database.name"></option>
-                    </template>
-                </select>
-            </label>
             <button type="button" class="button ghost" @click="openProcesses()" :disabled="busy" title="Your queries running on the server">Processes</button>
             <form method="post" action="logout.php">
                 <input type="hidden" name="csrf" :value="csrf">
@@ -307,7 +316,7 @@ $asset = static fn (string $path): string => $path.'?v='.rawurlencode($version);
                                         <button type="button" class="link" @click="openEditor(r)" :disabled="busy">Edit</button>
                                     </td>
                                     <template x-for="(cell, c) in row" :key="c">
-                                        <td :class="cellClass(cell, browse.columns[c])" @click="openCell(r, c)" x-text="cellText(cell)"></td>
+                                        <td :class="cellClass(cell, browse.columns[c])" @click="rowsEditable() ? openEditor(r, browse.columns[c].name) : openCell(r, c)" x-text="cellText(cell)"></td>
                                     </template>
                                 </tr>
                             </template>
